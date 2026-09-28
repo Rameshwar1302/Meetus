@@ -1,7 +1,7 @@
 import User from "../Models/users.js";
 import httpStatus from "http-status"
 import bcrypt, {hash} from "bcrypt" 
-
+import crypto from "crypto"
 
 const Register = async (req, res) => {
      try{
@@ -49,9 +49,9 @@ const Login = async (req, res) => {
     try {
       const {username, password} = req.body;
 
-    //   if( !username || !password){
-    //     res.status(httpStatus.NOT_ACCEPTABLE).json({success : false, message:""})
-    //   }
+      if( !username || !password){
+        res.status(httpStatus.NOT_ACCEPTABLE).json({success : false, message:""})
+      }
 
       const user = await User.findOne({username});
 
@@ -62,21 +62,27 @@ const Login = async (req, res) => {
         });
       }
 
-      const isMatched = await bcrypt.copare(password, user.password);
+      const isMatched = await bcrypt.compare(password, user.password);
 
       if(!isMatched){
-         return res.status(httpStatus.).json({
+         return res.status(httpStatus.UNAUTHORIZED).json({
             success:false,
             message: "Password Not matched"
          })
       }
 
+      let token = crypto.randomBytes(16).toString("hex");
+      user.token = token;
+      
+      await user.save();
+
       return res.status(httpStatus.ACCEPTED).json({
-        success: false,
-        message: "Loged in Successfully",
+        success: true,
+        message: "Logged` in Successfully",
         user: {
         username: user.username,
         name: user.name,
+        token: user.token,
         },
       })
 
@@ -88,3 +94,5 @@ const Login = async (req, res) => {
         });
      }
 }
+
+export {Register, Login};
