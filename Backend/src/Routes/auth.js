@@ -1,14 +1,24 @@
 import { Router } from "express";
-import {Login, Register} from "../Controller/user.js";
+
+import {
+    login,
+    register,
+    getMe
+} from "../controllers/auth.js";
+
+import { authenticate } from "../middleware/auth.js";
 
 
 const router = Router();
 
-router.route("/login").post(Login);
-router.route("/register").post(Register);
-router.route("/register");
-router.route("/add_activity");
-router.route("/get_allActivity");
+
+// Public routes
+router.post("/login", login);
+router.post("/register", register);
+
+
+// Protected route
+router.get("/me", authenticate, getMe);
 
 
 export default router;

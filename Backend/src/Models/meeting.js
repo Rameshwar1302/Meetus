@@ -15,13 +15,6 @@ const meetingSchema = new Schema(
             required: true
         },
 
-        accessMode: {
-            type: String,
-            enum: ["guest", "authenticated"],
-            default: "guest",
-            required: true
-        },
-
         startTime: {
             type: Date,
             default: Date.now

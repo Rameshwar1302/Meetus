@@ -1,8 +1,25 @@
-import { Router } from "express";
+import express from "express";
 
-const router = Router();
+import {createMeeting, getMeeting} from "../controllers/meeting.js";
 
-router.route("/add_activity");
-router.route("/get_allActivity");
+// import { authenticate } from "../middleware/auth.js";
+
+const router = express.Router();
+
+
+// Create meeting → login required
+router.post(
+    "/create",
+    // authenticate,
+    createMeeting
+);
+
+
+// Get meeting information
+router.get(
+    "/:meetingId",
+    getMeeting
+);
+
 
 export default router;
