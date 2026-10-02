@@ -1,98 +1,141 @@
 import User from "../Models/users.js";
-import httpStatus from "http-status"
-import bcrypt, {hash} from "bcrypt" 
-import crypto from "crypto"
+import httpStatus from "http-status";
+import bcrypt from "bcrypt";
+import jwt from "jsonwebtoken";
+
 
 const Register = async (req, res) => {
-     try{
-        const {name, username, password} = req.body;
+    try {
 
+        const { name, username, password } = req.body;
+
+        // Validate input
         if (!name || !username || !password) {
-         return res.status(httpStatus.BAD_REQUEST).json({
-        success: false,
-        message: "name, username and password are required",
-      });
-    }
+            return res.status(httpStatus.BAD_REQUEST).json({
+                success: false,
+                message: "Name, username and password are required"
+            });
+        }
 
-        const existingUser = await User.findOne({username});
+        // Normalize username
+        const normalizedUsername = username.trim().toLowerCase();
 
-        if(existingUser){
-           return res.status(httpStatus.CONFLICT).json({
-        success: false,
-        message: "User already exists",
+        // Check existing user
+        const existingUser = await User.findOne({
+            username: normalizedUsername
         });
-      }
-    
 
-      const hashedpassword = await bcrypt.hash(password, 10);
+        if (existingUser) {
+            return res.status(httpStatus.CONFLICT).json({
+                success: false,
+                message: "Username already exists"
+            });
+        }
 
-      const newUser = new User({
-        name : name,
-        username : username,
-        password: hashedpassword
-      });
+        // Hash password
+        const hashedPassword = await bcrypt.hash(password, 10);
 
-      await newUser.save();
+        // Create user
+        const newUser = new User({
+            name: name.trim(),
+            username: normalizedUsername,
+            password: hashedPassword
+        });
 
-      return res.status(httpStatus.CREATED).json({success : true, message : "User Added Successfully"});
+        await newUser.save();
 
-     }catch (error) {
-        console.log(error);
+        return res.status(httpStatus.CREATED).json({
+            success: true,
+            message: "User registered successfully"
+        });
+
+    } catch (error) {
+
+        console.error("Register Error:", error);
+
         return res.status(httpStatus.INTERNAL_SERVER_ERROR).json({
-            success : false,
-            message : "Internal Server Error"
+            success: false,
+            message: "Internal Server Error"
         });
-     }
-}
+    }
+};
+
 
 const Login = async (req, res) => {
     try {
-      const {username, password} = req.body;
 
-      if( !username || !password){
-        res.status(httpStatus.NOT_ACCEPTABLE).json({success : false, message:""})
-      }
+        const { username, password } = req.body;
 
-      const user = await User.findOne({username});
+        // Validate input
+        if (!username || !password) {
+            return res.status(httpStatus.BAD_REQUEST).json({
+                success: false,
+                message: "Username and password are required"
+            });
+        }
 
-      if(!user){
-        return res.status(400).json({
-            success : false, 
-            message : "User not found"
+        const normalizedUsername = username.trim().toLowerCase();
+
+        // Find user
+        const user = await User.findOne({
+            username: normalizedUsername
         });
-      }
 
-      const isMatched = await bcrypt.compare(password, user.password);
+        if (!user) {
+            return res.status(httpStatus.UNAUTHORIZED).json({
+                success: false,
+                message: "Invalid username or password"
+            });
+        }
 
-      if(!isMatched){
-         return res.status(httpStatus.UNAUTHORIZED).json({
-            success:false,
-            message: "Password Not matched"
-         })
-      }
+        // Compare password
+        const isMatched = await bcrypt.compare(
+            password,
+            user.password
+        );
 
-      let token = crypto.randomBytes(16).toString("hex");
-      user.token = token;
-      
-      await user.save();
+        if (!isMatched) {
+            return res.status(httpStatus.UNAUTHORIZED).json({
+                success: false,
+                message: "Invalid username or password"
+            });
+        }
 
-      return res.status(httpStatus.ACCEPTED).json({
-        success: true,
-        message: "Logged` in Successfully",
-        user: {
-        username: user.username,
-        name: user.name,
-        token: user.token,
-        },
-      })
+        // Create JWT
+        const token = jwt.sign(
+            {
+                sub: user._id.toString(),
+                username: user.username,
+                name: user.name,
+                role: "user"
+            },
+            process.env.JWT_SECRET,
+            {
+                expiresIn: process.env.JWT_EXPIRES_IN || "1d"
+            }
+        );
+
+        return res.status(httpStatus.OK).json({
+            success: true,
+            message: "Logged in successfully",
+            user: {
+                id: user._id,
+                username: user.username,
+                name: user.name,
+                token
+            }
+        });
 
     } catch (error) {
-         console.log(error);
-        return res.status(httpStatus.INTERNAL_SERVER_ERROR).json({
-            success : false,
-            message : "Internal Server Error"
-        });
-     }
-}
 
-export {Register, Login};
+        console.error("Login Error:", error);
+
+        return res.status(httpStatus.INTERNAL_SERVER_ERROR).json({
+            success: false,
+            message: "Internal Server Error"
+        });
+    }
+};
+
+
+export { Register, Login };
