@@ -6,12 +6,12 @@ import { createServer } from "node:http";
 import { connectDB } from "./config/database.js";
 import { connectSocket } from "./socket/index.js";
 
-import authRoutes from "./routes/auth.js";
-import meetingRoutes from "./routes/meeting.js";
+import authRoutes from "./Routes/auth.js";
+import meetingRoutes from "./Routes/meeting.js";
 
 dotenv.config();
 
-const PORT = process.env.PORT || 8000;
+const PORT = process.env.PORT || 8081;
 
 const app = express();
 const server = createServer(app);
