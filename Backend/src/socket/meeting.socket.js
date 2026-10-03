@@ -1,227 +1,314 @@
-import Meeting from "../Models/meeting.js";
+import Meeting from "../models/meeting.js";
+
+
+const removeFromMeeting = async (io, socket) => {
+
+    const meetingId = socket.data.meetingId;
+
+    if (!meetingId) {
+        return;
+    }
+
+    socket.to(meetingId).emit(
+        "user-left",
+        {
+            socketId: socket.id
+        }
+    );
+
+    await socket.leave(meetingId);
+
+    socket.data.meetingId = null;
+};
 
 export const registerMeetingHandlers = (io, socket) => {
 
-    // =========================================
+    // ==========================================
     // JOIN MEETING
-    // =========================================
+    // ==========================================
 
-    socket.on("join-call", async ({ meetingId }, callback) => {
+    socket.on(
+        "join-call",
+        async ({ meetingId }, callback) => {
 
-        try {
-            if (!meetingId) {
-                return callback({
-                    success: false,
-                    message: "Meeting ID is required"
-                });
-            }
+            try {
 
-            // Find active meeting
-            const meeting = await Meeting.findOne({
-                meetingId,
-                isActive: true
-            });
+                const normalizedMeetingId =
+                    meetingId?.trim().toUpperCase();
 
-            if (!meeting) {
-                return callback({
-                    success: false,
-                    message: "Meeting not found or inactive"
-                });
-            }
 
-            // -----------------------------------------
-            // AUTHORIZATION
-            // -----------------------------------------
+                if (!normalizedMeetingId) {
 
-            // Authenticated-only meeting
-            if (
-                meeting.accessMode === "authenticated" &&
-                socket.user.role !== "user"
-            ) {
-                return callback({
-                    success: false,
-                    message: "This meeting requires login"
-                });
-            }
-
-            // Guest token can only join its own meeting
-            if (
-                socket.user.role === "guest" &&
-                socket.user.meetingId !== meetingId
-            ) {
-                return callback({
-                    success: false,
-                    message: "Guest token is not valid for this meeting"
-                });
-            }
-
-            // -----------------------------------------
-            // ALREADY IN A MEETING?
-            // -----------------------------------------
-
-            const previousMeeting = socket.data.meetingId;
-
-            if (previousMeeting && previousMeeting !== meetingId) {
-                socket.to(previousMeeting).emit("user-left", {
-                    socketId: socket.id
-                });
-
-                socket.leave(previousMeeting);
-            }
-
-            // Store current meeting on socket
-            socket.data.meetingId = meetingId;
-
-            // -----------------------------------------
-            // GET EXISTING PARTICIPANTS
-            // -----------------------------------------
-
-            const room = io.sockets.adapter.rooms.get(meetingId);
-
-            const existingParticipants = [];
-
-            if (room) {
-                for (const socketId of room) {
-
-                    const participantSocket =
-                        io.sockets.sockets.get(socketId);
-
-                    if (!participantSocket) continue;
-
-                    existingParticipants.push({
-                        socketId,
-                        user: {
-                            id: participantSocket.user.sub,
-                            name: participantSocket.user.name,
-                            role: participantSocket.user.role
-                        }
+                    return callback({
+                        success: false,
+                        message: "Meeting ID is required"
                     });
                 }
-            }
 
-            // -----------------------------------------
-            // JOIN ROOM
-            // -----------------------------------------
 
-            await socket.join(meetingId);
+                // ==================================
+                // FIND MEETING
+                // ==================================
 
-            // -----------------------------------------
-            // ACKNOWLEDGEMENT TO JOINING USER
-            // -----------------------------------------
+                const meeting = await Meeting.findOne({
+                    meetingId: normalizedMeetingId,
+                    isActive: true
+                });
 
-            callback({
-                success: true,
-                meeting: {
-                    meetingId: meeting.meetingId,
-                    accessMode: meeting.accessMode
-                },
-                self: {
-                    socketId: socket.id,
-                    user: {
-                        id: socket.user.sub,
-                        name: socket.user.name,
-                        role: socket.user.role
-                    }
-                },
-                participants: existingParticipants
-            });
 
-            // -----------------------------------------
-            // NOTIFY EXISTING USERS
-            // -----------------------------------------
+                if (!meeting) {
 
-            socket.to(meetingId).emit("user-joined", {
-                socketId: socket.id,
-                user: {
-                    id: socket.user.sub,
-                    name: socket.user.name,
-                    role: socket.user.role
+                    return callback({
+                        success: false,
+                        message:
+                            "Meeting not found or has ended"
+                    });
                 }
-            });
 
-            console.log(
-                `${socket.user.name} (${socket.id}) joined ${meetingId}`
-            );
 
-        } catch (error) {
+                // ==================================
+                // GUEST AUTHORIZATION
+                // ==================================
 
-            console.error("Join meeting error:", error);
+                if (
+                    socket.user.role === "guest" &&
+                    socket.user.meetingId !==
+                        normalizedMeetingId
+                ) {
 
-            callback({
-                success: false,
-                message: "Failed to join meeting"
-            });
+                    return callback({
+                        success: false,
+                        message:
+                            "Guest is not authorized for this meeting"
+                    });
+                }
+
+
+                // ==================================
+                // IF ALREADY IN ANOTHER ROOM
+                // ==================================
+
+                const previousMeetingId =
+                    socket.data.meetingId;
+
+
+                if (
+                    previousMeetingId &&
+                    previousMeetingId !==
+                        normalizedMeetingId
+                ) {
+
+                    socket
+                        .to(previousMeetingId)
+                        .emit("user-left", {
+                            socketId: socket.id
+                        });
+
+                    socket.leave(previousMeetingId);
+                }
+
+
+                // ==================================
+                // GET EXISTING PARTICIPANTS
+                // ==================================
+
+                const room =
+                    io.sockets.adapter.rooms.get(
+                        normalizedMeetingId
+                    );
+
+
+                const participants = [];
+
+
+                if (room) {
+
+                    for (const socketId of room) {
+
+                        const participantSocket =
+                            io.sockets.sockets.get(
+                                socketId
+                            );
+
+
+                        if (!participantSocket) {
+                            continue;
+                        }
+
+
+                        participants.push({
+
+                            socketId,
+
+                            user: {
+                                id:
+                                    participantSocket
+                                        .user.id,
+
+                                name:
+                                    participantSocket
+                                        .user.name,
+
+                                role:
+                                    participantSocket
+                                        .user.role
+                            }
+                        });
+                    }
+                }
+
+
+                // ==================================
+                // JOIN ROOM
+                // ==================================
+
+                await socket.join(
+                    normalizedMeetingId
+                );
+
+
+                socket.data.meetingId =
+                    normalizedMeetingId;
+
+
+                // ==================================
+                // IS HOST?
+                // ==================================
+
+                const isHost =
+                    socket.user.role === "user" &&
+                    meeting.host.toString() ===
+                        socket.user.id;
+
+
+                // ==================================
+                // ACKNOWLEDGE JOIN
+                // ==================================
+
+                callback({
+
+                    success: true,
+
+                    meeting: {
+                        meetingId:
+                            meeting.meetingId,
+
+                        startTime:
+                            meeting.startTime,
+
+                        isActive:
+                            meeting.isActive
+                    },
+
+                    self: {
+                        socketId: socket.id,
+
+                        user: socket.user,
+
+                        isHost
+                    },
+
+                    participants
+
+                });
+
+
+                // ==================================
+                // NOTIFY OTHER PARTICIPANTS
+                // ==================================
+
+                socket
+                    .to(normalizedMeetingId)
+                    .emit("user-joined", {
+
+                        socketId: socket.id,
+
+                        user: socket.user,
+
+                        isHost
+
+                    });
+
+
+                console.log(
+                    `${socket.user.name} joined ${normalizedMeetingId}`
+                );
+
+
+            } catch (error) {
+
+                console.error(
+                    "Join meeting error:",
+                    error
+                );
+
+                callback({
+                    success: false,
+                    message:
+                        "Failed to join meeting"
+                });
+            }
         }
-    });
+    );
 
 
-    // =========================================
+    // ==========================================
     // LEAVE MEETING
-    // =========================================
+    // ==========================================
 
-    socket.on("leave-call", async (callback) => {
+    socket.on(
+    "leave-call",
+    async (callback) => {
 
         try {
 
-            const meetingId = socket.data.meetingId;
-
-            if (!meetingId) {
-                return callback?.({
-                    success: false,
-                    message: "User is not in a meeting"
-                });
-            }
-
-            socket.to(meetingId).emit("user-left", {
-                socketId: socket.id
-            });
-
-            await socket.leave(meetingId);
-
-            socket.data.meetingId = null;
+            await removeFromMeeting(
+                io,
+                socket
+            );
 
             callback?.({
                 success: true,
                 message: "Left meeting successfully"
             });
 
-            console.log(
-                `${socket.user.name} (${socket.id}) left ${meetingId}`
-            );
-
         } catch (error) {
 
-            console.error("Leave meeting error:", error);
+            console.error(
+                "Leave meeting error:",
+                error
+            );
 
             callback?.({
                 success: false,
-                message: "Failed to leave meeting"
+                message:
+                    "Failed to leave meeting"
             });
         }
-    });
+    }
+);
 
 
-    // =========================================
+    // ==========================================
     // DISCONNECT
-    // =========================================
+    // ==========================================
 
-    socket.on("disconnect", () => {
+    socket.on("disconnect", async () => {
 
-        const meetingId = socket.data.meetingId;
+    try {
 
-        if (!meetingId) {
-            return;
-        }
-
-        socket.to(meetingId).emit("user-left", {
-            socketId: socket.id
-        });
-
-        console.log(
-            `${socket.user.name} (${socket.id}) disconnected from ${meetingId}`
+        await removeFromMeeting(
+            io,
+            socket
         );
 
-        socket.data.meetingId = null;
-    });
+    } catch (error) {
+
+        console.error(
+            "Disconnect cleanup error:",
+            error
+        );
+    }
+});
 
 };

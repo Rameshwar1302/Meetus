@@ -6,8 +6,8 @@ import { createServer } from "node:http";
 import { connectDB } from "./config/database.js";
 import { connectSocket } from "./socket/index.js";
 
-import authRoutes from "./Routes/auth.js";
-import meetingRoutes from "./Routes/meeting.js";
+import authRoutes from "./routes/auth.js";
+import meetingRoutes from "./routes/meeting.js";
 
 dotenv.config();
 
@@ -29,7 +29,9 @@ app.use("/api/auth", authRoutes);
 app.use("/api/meeting", meetingRoutes);
 
 // Socket.IO
-connectSocket(server);
+const io = connectSocket(server);
+
+app.set("io", io);
 
 const start = async () => {
     try {

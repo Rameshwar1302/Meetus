@@ -1,24 +1,26 @@
 import { io } from "socket.io-client";
 
-const SOCKET_URL = import.meta.env.VITE_SOCKET_URL;
 
-export const createSocket = () => {
+const SOCKET_URL =
+    import.meta.env.VITE_SOCKET_URL;
 
-    const userToken =
-        localStorage.getItem("accessToken");
 
-    const guestToken =
-        localStorage.getItem("guestToken");
-
-    const token = userToken || guestToken;
+export const createSocket = (token) => {
 
     if (!token) {
-        throw new Error("No authentication token found");
+        throw new Error(
+            "Authentication token not found"
+        );
     }
 
+
     return io(SOCKET_URL, {
+
+        autoConnect: false,
+
         auth: {
             token
         }
+
     });
 };

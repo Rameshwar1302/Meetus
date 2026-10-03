@@ -9,65 +9,104 @@ const Dashboard = () => {
     const { user, logout } = useAuth();
     const navigate = useNavigate();
 
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState("");
 
-    const handleCreateMeeting = async () => {
 
+const handleCreateMeeting = async () => {
     try {
-
         setLoading(true);
         setError("");
 
-        const response = await api.post(
-            "/meeting/create"
-        );
+       
+
+        const response = await api.post("/meeting/create");
+
 
         const meetingId =
-            response.data.meeting.meetingId;
+            response.data?.meeting?.meetingId;
+
+        if (!meetingId) {
+            throw new Error(
+                "Backend did not return a meetingId"
+            );
+        }
 
         navigate(`/meeting/${meetingId}`);
 
     } catch (error) {
 
+        console.error("CREATE MEETING ERROR");
+        console.error("Message:", error.message);
+        console.error("Status:", error.response?.status);
+        console.error("Response:", error.response?.data);
+
         setError(
             error.response?.data?.message ||
+            error.message ||
             "Failed to create meeting"
         );
 
     } finally {
-
         setLoading(false);
     }
 };
 
 
+    const handleJoinMeeting = () => {
+        navigate("/join");
+    };
+
+
+    const handleHistory = () => {
+        navigate("/history");
+    };
+
+
+    const handleLogout = () => {
+
+        logout();
+
+        navigate("/", {
+            replace: true
+        });
+    };
+
+
     return (
         <div>
 
-            <h1>Welcome, {user?.name}</h1>
+            <h1>
+                Welcome, {user?.name}
+            </h1>
+
+            {error && (
+                <p>{error}</p>
+            )}
 
             <button
-                onClick={() => navigate("/meeting/new")}
+                onClick={handleCreateMeeting}
+                disabled={loading}
             >
-                Create Meeting
+                {loading
+                    ? "Creating..."
+                    : "Create Meeting"}
             </button>
 
             <button
-                onClick={() => navigate("/join")}
+                onClick={handleJoinMeeting}
             >
                 Join Meeting
             </button>
 
             <button
-                onClick={() => navigate("/history")}
+                onClick={handleHistory}
             >
                 Meeting History
             </button>
 
             <button
-                onClick={() => {
-                    logout();
-                    navigate("/");
-                }}
+                onClick={handleLogout}
             >
                 Logout
             </button>
@@ -75,4 +114,5 @@ const Dashboard = () => {
         </div>
     );
 };
+
 export default Dashboard;

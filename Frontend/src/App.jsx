@@ -7,7 +7,7 @@ import Dashboard from "./pages/Dashboard.jsx";
 import GuestJoin from "./pages/GuestJoin.jsx";
 import JoinMeeting from "./pages/JoinMeeting.jsx";
 import Meeting from "./pages/Meeting.jsx";
-// import MeetingHistory from "./pages/MeetingHistory.jsx";
+import MeetingHistory from "./pages/MeetingHistory.jsx";
 
 import ProtectedRoute from "./components/ProtectedRoute.jsx";
 import { AuthProvider } from "./context/AuthContext.jsx";
@@ -44,6 +44,11 @@ const App = () => {
                         element={<GuestJoin />}
                     />
 
+                   <Route
+                       path="/meeting/:meetingId"
+                       element={<Meeting />}
+                   />
+
 
                     {/* PROTECTED */}
 
@@ -54,15 +59,15 @@ const App = () => {
                             element={<Dashboard />}
                         />
 
-                         {/* <Route
+                         <Route
                             path="/join"
                             element={<JoinMeeting />}
-                        /> */}
+                        />
 
-                        {/* <Route
+                        <Route
                             path="/history"
                             element={<MeetingHistory />}
-                        />  */}
+                        /> 
 
                     </Route>
 

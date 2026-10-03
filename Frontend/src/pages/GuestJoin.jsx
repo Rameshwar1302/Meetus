@@ -18,9 +18,10 @@ const GuestJoin = () => {
 
         e.preventDefault();
 
-        setError("");
+        const id = meetingId
+            .trim()
+            .toUpperCase();
 
-        const id = meetingId.trim().toUpperCase();
         const guestName = name.trim();
 
         if (!id || !guestName) {
@@ -33,6 +34,7 @@ const GuestJoin = () => {
         try {
 
             setLoading(true);
+            setError("");
 
             const response = await api.post(
                 `/meeting/${id}/guest-token`,
@@ -41,11 +43,9 @@ const GuestJoin = () => {
                 }
             );
 
-            const token = response.data.token;
-
-            localStorage.setItem(
+            sessionStorage.setItem(
                 "guestToken",
-                token
+                response.data.token
             );
 
             navigate(`/meeting/${id}`);
@@ -72,18 +72,16 @@ const GuestJoin = () => {
             <form onSubmit={handleSubmit}>
 
                 <input
-                    type="text"
-                    placeholder="Meeting ID"
                     value={meetingId}
+                    placeholder="Meeting ID"
                     onChange={(e) =>
                         setMeetingId(e.target.value)
                     }
                 />
 
                 <input
-                    type="text"
-                    placeholder="Your name"
                     value={name}
+                    placeholder="Your name"
                     onChange={(e) =>
                         setName(e.target.value)
                     }

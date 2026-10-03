@@ -12,10 +12,12 @@ const JoinMeeting = () => {
 
         e.preventDefault();
 
-        const id = meetingId.trim().toUpperCase();
+        const id = meetingId
+            .trim()
+            .toUpperCase();
 
         if (!id) {
-            setError("Enter a meeting ID");
+            setError("Meeting ID is required");
             return;
         }
 
@@ -30,9 +32,8 @@ const JoinMeeting = () => {
             <form onSubmit={handleSubmit}>
 
                 <input
-                    type="text"
-                    placeholder="Enter meeting ID"
                     value={meetingId}
+                    placeholder="Meeting ID"
                     onChange={(e) =>
                         setMeetingId(e.target.value)
                     }
@@ -41,7 +42,7 @@ const JoinMeeting = () => {
                 {error && <p>{error}</p>}
 
                 <button type="submit">
-                    Join Meeting
+                    Join
                 </button>
 
             </form>

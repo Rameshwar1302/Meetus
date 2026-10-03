@@ -1,21 +1,55 @@
-import express from "express";
+import { Router } from "express";
 
-import {createMeeting, getMeeting} from "../controllers/meeting.js";
+import {
+    createMeeting,
+    getMeeting,
+    createGuestToken,
+    getMeetingHistory,
+    endMeeting
+} from "../controllers/meeting.js";
 
-// import { authenticate } from "../middleware/auth.js";
+import { authenticate } from "../middleware/auth.js";
 
-const router = express.Router();
+const router = Router();
 
 
-// Create meeting → login required
+// ==========================================
+// AUTHENTICATED USER
+// ==========================================
+
+// Create meeting
 router.post(
     "/create",
-    // authenticate,
+    authenticate,
     createMeeting
 );
 
+// Meeting history
+router.get(
+    "/history",
+    authenticate,
+    getMeetingHistory
+);
 
-// Get meeting information
+// End meeting
+router.post(
+    "/:meetingId/end",
+    authenticate,
+    endMeeting
+);
+
+
+// ==========================================
+// PUBLIC
+// ==========================================
+
+// Guest token
+router.post(
+    "/:meetingId/guest-token",
+    createGuestToken
+);
+
+// Meeting information
 router.get(
     "/:meetingId",
     getMeeting

@@ -120,12 +120,13 @@ export const AuthProvider = ({ children }) => {
     // LOGOUT
     // ==========================================
 
-    const logout = () => {
+   const logout = () => {
 
-        localStorage.removeItem("accessToken");
+    localStorage.removeItem("accessToken");
+    sessionStorage.removeItem("guestToken");
 
-        setUser(null);
-    };
+    setUser(null);
+};
 
 
     return (

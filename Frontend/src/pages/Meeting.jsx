@@ -1,16 +1,30 @@
-import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import {
+    useEffect,
+    useRef,
+    useState
+} from "react";
+
+import {
+    useNavigate,
+    useParams
+} from "react-router-dom";
 
 import api from "../services/api.js";
 import { createSocket } from "../services/socket.js";
 
+
 const Meeting = () => {
 
     const { meetingId } = useParams();
+
     const navigate = useNavigate();
+
+    const socketRef = useRef(null);
+
 
     const [meeting, setMeeting] = useState(null);
     const [participants, setParticipants] = useState([]);
+    const [isHost, setIsHost] = useState(false);
 
     const [error, setError] = useState("");
     const [connected, setConnected] = useState(false);
@@ -18,128 +32,245 @@ const Meeting = () => {
 
     useEffect(() => {
 
-        let socket;
+        let cancelled = false;
+
 
         const joinMeeting = async () => {
 
             try {
 
-                // --------------------------------
-                // Verify meeting exists
-                // --------------------------------
+                // =====================================
+                // GET MEETING
+                // =====================================
 
                 const response = await api.get(
                     `/meeting/${meetingId}`
                 );
 
-                setMeeting(response.data.meeting);
+
+                // If this effect was already cleaned up
+                if (cancelled) {
+                    return;
+                }
 
 
-                // --------------------------------
-                // Create Socket.IO connection
-                // --------------------------------
+                setMeeting(
+                    response.data.meeting
+                );
 
-                socket = createSocket();
 
+                // =====================================
+                // GET TOKEN
+                // =====================================
+
+                const userToken = localStorage.getItem("accessToken");
+
+                const guestToken = sessionStorage.getItem("guestToken");
+
+                const token = userToken || guestToken;
+
+                if (!token) {
+
+                    setError(
+                        "Authentication required"
+                    );
+
+                    return;
+                }
+
+
+                // =====================================
+                // CREATE SOCKET
+                // =====================================
+
+                const socket =
+                    createSocket(token);
+
+
+                // Store the socket
+                socketRef.current = socket;
+
+
+                // =====================================
+                // CONNECT
+                // =====================================
 
                 socket.on("connect", () => {
+
+                    if (cancelled) {
+                        return;
+                    }
+
 
                     console.log(
                         "Socket connected:",
                         socket.id
                     );
 
+
                     setConnected(true);
 
 
-                    // --------------------------------
-                    // Join meeting room
-                    // --------------------------------
+                    // =================================
+                    // JOIN MEETING ROOM
+                    // =================================
 
-                    socket.emit(
-                        "join-call",
-                        {
-                            meetingId
-                        },
-                        (response) => {
+    socket.emit(
+    "join-call",
+    {
+        meetingId
+    },
+    (response) => {
 
-                            if (!response.success) {
+        console.log(
+            "Join response:",
+            response
+        );
 
-                                setError(
-                                    response.message
-                                );
+        if (!response.success) {
 
-                                return;
-                            }
+            setError(
+                response.message
+            );
 
-                            console.log(
-                                "Joined meeting:",
-                                response
-                            );
+            return;
+        }
 
-                            setParticipants(
-                                response.participants
-                            );
-                        }
-                    );
+        setParticipants(
+            response.participants || []
+        );
+
+        setIsHost(
+            response.self?.isHost || false
+        );
+    }
+);
                 });
 
 
-                // --------------------------------
-                // New participant
-                // --------------------------------
+                // =====================================
+                // USER JOINED
+                // =====================================
 
                 socket.on(
                     "user-joined",
                     (participant) => {
 
-                        setParticipants(
-                            (prev) => [
-                                ...prev,
-                                participant
-                            ]
+                        if (cancelled) {
+                            return;
+                        }
+
+
+                        console.log(
+                            "User joined:",
+                            participant
                         );
+
+
+                        setParticipants(
+                            (previous) => {
+
+                                const alreadyExists =
+                                    previous.some(
+                                        (p) =>
+                                            p.socketId ===
+                                            participant.socketId
+                                    );
+
+
+                                if (alreadyExists) {
+                                    return previous;
+                                }
+
+
+                                return [
+                                    ...previous,
+                                    participant
+                                ];
+                            }
+                        );
+
                     }
                 );
 
 
-                // --------------------------------
-                // Participant left
-                // --------------------------------
+                // =====================================
+                // USER LEFT
+                // =====================================
 
                 socket.on(
                     "user-left",
                     ({ socketId }) => {
 
+                        if (cancelled) {
+                            return;
+                        }
+
+
+                        console.log(
+                            "User left:",
+                            socketId
+                        );
+
+
                         setParticipants(
-                            (prev) =>
-                                prev.filter(
+                            (previous) =>
+                                previous.filter(
                                     (p) =>
-                                        p.socketId !== socketId
+                                        p.socketId !==
+                                        socketId
                                 )
                         );
+
                     }
                 );
 
+
+                // =====================================
+                // CONNECTION ERROR
+                // =====================================
 
                 socket.on(
                     "connect_error",
                     (error) => {
 
                         console.error(
-                            "Socket error:",
+                            "Socket connection error:",
                             error
                         );
 
-                        setError(
-                            error.message
-                        );
+
+                        if (!cancelled) {
+
+                            setConnected(false);
+
+                            setError(
+                                error.message
+                            );
+                        }
+
                     }
                 );
 
+
+                // =====================================
+                // START CONNECTION
+                // =====================================
+
+                socket.connect();
+
             } catch (error) {
 
-                console.error(error);
+                if (cancelled) {
+                    return;
+                }
+
+
+                console.error(
+                    "Meeting error:",
+                    error
+                );
+
 
                 setError(
                     error.response?.data?.message ||
@@ -152,7 +283,18 @@ const Meeting = () => {
         joinMeeting();
 
 
+        // ==========================================
+        // CLEANUP
+        // ==========================================
+
         return () => {
+
+            cancelled = true;
+
+
+            const socket =
+                socketRef.current;
+
 
             if (socket) {
 
@@ -160,54 +302,139 @@ const Meeting = () => {
                     "leave-call"
                 );
 
+
+                socket.removeAllListeners();
+
                 socket.disconnect();
+
+                socketRef.current = null;
             }
+
         };
 
     }, [meetingId]);
 
 
-    const leaveMeeting = () => {
+    // =============================================
+    // LEAVE MEETING
+    // =============================================
 
-        navigate("/dashboard");
-    };
+   const leaveMeeting = () => {
 
+    const socket = socketRef.current;
+
+    if (socket) {
+
+        socket.emit("leave-call");
+
+        socket.disconnect();
+
+        socketRef.current = null;
+    }
+
+    // Only guest session should be removed
+    sessionStorage.removeItem("guestToken");
+
+    navigate("/dashboard", {
+        replace: true
+    });
+};
+
+const endMeeting = async () => {
+
+    try {
+
+        setError("");
+
+        await api.post(
+            `/meeting/${meetingId}/end`
+        );
+
+        // Remove guest token if present.
+        // Host normally won't have one.
+        sessionStorage.removeItem(
+            "guestToken"
+        );
+
+        // The backend has already emitted
+        // meeting-ended, but navigate here
+        // as an immediate fallback.
+        navigate("/dashboard", {
+            replace: true
+        });
+
+    } catch (error) {
+
+        console.error(
+            "End meeting error:",
+            error
+        );
+
+        setError(
+            error.response?.data?.message ||
+            "Failed to end meeting"
+        );
+    }
+};
+
+
+    // =============================================
+    // ERROR
+    // =============================================
 
     if (error) {
 
         return (
             <div>
-                <h2>Unable to join meeting</h2>
-                <p>{error}</p>
+
+                <h2>
+                    Unable to join meeting
+                </h2>
+
+                <p>
+                    {error}
+                </p>
 
                 <button
-                    onClick={() => navigate("/")}
+                    onClick={() =>
+                        navigate("/")
+                    }
                 >
                     Go Home
                 </button>
+
             </div>
         );
     }
 
 
+
     return (
         <div>
 
-            <h1>
-                Meeting: {meetingId}
-            </h1>
+            <h1>Meeting</h1>
+
+            <h2>
+                {meetingId}
+            </h2>
+
 
             <p>
                 Status:{" "}
+
                 {connected
                     ? "Connected"
                     : "Connecting..."}
             </p>
 
 
+            <hr />
+
+
             <h2>
                 Participants
             </h2>
+
 
             {participants.length === 0 && (
                 <p>
@@ -216,29 +443,52 @@ const Meeting = () => {
             )}
 
 
-            {participants.map((participant) => (
+            {participants.map(
+                (participant) => (
 
-                <div key={participant.socketId}>
+                    <div
+                        key={
+                            participant.socketId
+                        }
+                    >
 
-                    <strong>
-                        {participant.user.name}
-                    </strong>
+                        <strong>
+                            {participant.user.name}
+                        </strong>
 
-                    <span>
-                        {" "}({participant.user.role})
-                    </span>
+                        <span>
+                            {" "}
+                            ({participant.user.role})
+                        </span>
 
-                </div>
+                        {participant.isHost && (
+                            <span>
+                                {" "}
+                                👑 Host
+                            </span>
+                        )}
 
-            ))}
+                    </div>
+                )
+            )}
+
+
+            <br />
 
 
             <button onClick={leaveMeeting}>
-                Leave Meeting
-            </button>
+    Leave Meeting
+</button>
+
+{isHost && (
+    <button onClick={endMeeting}>
+        End Meeting
+    </button>
+)}
 
         </div>
     );
 };
+
 
 export default Meeting;
