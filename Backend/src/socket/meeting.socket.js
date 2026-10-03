@@ -1,59 +1,110 @@
 import Meeting from "../models/meeting.js";
 
 
+// =====================================================
+// DEFAULT MEDIA STATE
+// =====================================================
+
+const defaultMediaState = {
+    muted: false,
+    cameraOff: false,
+    screenSharing: false
+};
+
+
+// =====================================================
+// REMOVE SOCKET FROM CURRENT MEETING
+// =====================================================
+
 const removeFromMeeting = async (io, socket) => {
 
-    const meetingId = socket.data.meetingId;
+    const meetingId =
+        socket.data.meetingId;
 
     if (!meetingId) {
         return;
     }
 
-    socket.to(meetingId).emit(
-        "user-left",
-        {
-            socketId: socket.id
-        }
+
+    // Tell everyone else that this participant left.
+    socket
+        .to(meetingId)
+        .emit(
+            "user-left",
+            {
+                socketId: socket.id
+            }
+        );
+
+
+    await socket.leave(
+        meetingId
     );
 
-    await socket.leave(meetingId);
 
-    socket.data.meetingId = null;
+    socket.data.meetingId =
+        null;
+
+    socket.data.mediaState =
+        null;
 };
 
-export const registerMeetingHandlers = (io, socket) => {
 
-    // ==========================================
+// =====================================================
+// REGISTER MEETING SOCKET HANDLERS
+// =====================================================
+
+export const registerMeetingHandlers = (
+    io,
+    socket
+) => {
+
+    // =================================================
     // JOIN MEETING
-    // ==========================================
+    // =================================================
 
     socket.on(
         "join-call",
-        async ({ meetingId }, callback) => {
+        async (
+            { meetingId },
+            callback
+        ) => {
 
             try {
 
+                // ======================================
+                // VALIDATE MEETING ID
+                // ======================================
+
                 const normalizedMeetingId =
-                    meetingId?.trim().toUpperCase();
+                    meetingId
+                        ?.trim()
+                        .toUpperCase();
 
 
                 if (!normalizedMeetingId) {
 
                     return callback({
                         success: false,
-                        message: "Meeting ID is required"
+                        message:
+                            "Meeting ID is required"
                     });
+
                 }
 
 
-                // ==================================
-                // FIND MEETING
-                // ==================================
+                // ======================================
+                // FIND ACTIVE MEETING
+                // ======================================
 
-                const meeting = await Meeting.findOne({
-                    meetingId: normalizedMeetingId,
-                    isActive: true
-                });
+                const meeting =
+                    await Meeting.findOne({
+                        meetingId:
+                            normalizedMeetingId,
+
+                        isActive:
+                            true
+                    });
 
 
                 if (!meeting) {
@@ -63,12 +114,13 @@ export const registerMeetingHandlers = (io, socket) => {
                         message:
                             "Meeting not found or has ended"
                     });
+
                 }
 
 
-                // ==================================
+                // ======================================
                 // GUEST AUTHORIZATION
-                // ==================================
+                // ======================================
 
                 if (
                     socket.user.role === "guest" &&
@@ -81,12 +133,13 @@ export const registerMeetingHandlers = (io, socket) => {
                         message:
                             "Guest is not authorized for this meeting"
                     });
+
                 }
 
 
-                // ==================================
-                // IF ALREADY IN ANOTHER ROOM
-                // ==================================
+                // ======================================
+                // LEAVE PREVIOUS MEETING
+                // ======================================
 
                 const previousMeetingId =
                     socket.data.meetingId;
@@ -100,17 +153,25 @@ export const registerMeetingHandlers = (io, socket) => {
 
                     socket
                         .to(previousMeetingId)
-                        .emit("user-left", {
-                            socketId: socket.id
-                        });
+                        .emit(
+                            "user-left",
+                            {
+                                socketId:
+                                    socket.id
+                            }
+                        );
 
-                    socket.leave(previousMeetingId);
+
+                    await socket.leave(
+                        previousMeetingId
+                    );
+
                 }
 
 
-                // ==================================
+                // ======================================
                 // GET EXISTING PARTICIPANTS
-                // ==================================
+                // ======================================
 
                 const room =
                     io.sockets.adapter.rooms.get(
@@ -123,7 +184,10 @@ export const registerMeetingHandlers = (io, socket) => {
 
                 if (room) {
 
-                    for (const socketId of room) {
+                    for (
+                        const socketId
+                        of room
+                    ) {
 
                         const participantSocket =
                             io.sockets.sockets.get(
@@ -143,24 +207,38 @@ export const registerMeetingHandlers = (io, socket) => {
                             user: {
                                 id:
                                     participantSocket
-                                        .user.id,
+                                        .user
+                                        .id,
 
                                 name:
                                     participantSocket
-                                        .user.name,
+                                        .user
+                                        .name,
 
                                 role:
                                     participantSocket
-                                        .user.role
-                            }
+                                        .user
+                                        .role
+                            },
+
+                            mediaState:
+                                participantSocket
+                                    .data
+                                    .mediaState ||
+                                {
+                                    ...defaultMediaState
+                                }
+
                         });
+
                     }
+
                 }
 
 
-                // ==================================
+                // ======================================
                 // JOIN ROOM
-                // ==================================
+                // ======================================
 
                 await socket.join(
                     normalizedMeetingId
@@ -171,9 +249,17 @@ export const registerMeetingHandlers = (io, socket) => {
                     normalizedMeetingId;
 
 
-                // ==================================
-                // IS HOST?
-                // ==================================
+                // Every newly joined socket starts
+                // with default media state.
+
+                socket.data.mediaState = {
+                    ...defaultMediaState
+                };
+
+
+                // ======================================
+                // CHECK HOST
+                // ======================================
 
                 const isHost =
                     socket.user.role === "user" &&
@@ -181,9 +267,9 @@ export const registerMeetingHandlers = (io, socket) => {
                         socket.user.id;
 
 
-                // ==================================
-                // ACKNOWLEDGE JOIN
-                // ==================================
+                // ======================================
+                // SEND JOIN RESPONSE
+                // ======================================
 
                 callback({
 
@@ -201,11 +287,15 @@ export const registerMeetingHandlers = (io, socket) => {
                     },
 
                     self: {
-                        socketId: socket.id,
 
-                        user: socket.user,
+                        socketId:
+                            socket.id,
+
+                        user:
+                            socket.user,
 
                         isHost
+
                     },
 
                     participants
@@ -213,27 +303,36 @@ export const registerMeetingHandlers = (io, socket) => {
                 });
 
 
-                // ==================================
+                // ======================================
                 // NOTIFY OTHER PARTICIPANTS
-                // ==================================
+                // ======================================
 
                 socket
                     .to(normalizedMeetingId)
-                    .emit("user-joined", {
+                    .emit(
+                        "user-joined",
+                        {
 
-                        socketId: socket.id,
+                            socketId:
+                                socket.id,
 
-                        user: socket.user,
+                            user:
+                                socket.user,
 
-                        isHost
+                            isHost,
 
-                    });
+                            mediaState:
+                                socket
+                                    .data
+                                    .mediaState
+
+                        }
+                    );
 
 
                 console.log(
                     `${socket.user.name} joined ${normalizedMeetingId}`
                 );
-
 
             } catch (error) {
 
@@ -242,73 +341,164 @@ export const registerMeetingHandlers = (io, socket) => {
                     error
                 );
 
-                callback({
+
+                callback?.({
+
                     success: false,
+
                     message:
                         "Failed to join meeting"
+
                 });
+
             }
+
         }
     );
 
 
-    // ==========================================
+    // =================================================
     // LEAVE MEETING
-    // ==========================================
+    // =================================================
 
     socket.on(
-    "leave-call",
-    async (callback) => {
+        "leave-call",
+        async (callback) => {
 
-        try {
+            try {
 
-            await removeFromMeeting(
-                io,
-                socket
-            );
+                await removeFromMeeting(
+                    io,
+                    socket
+                );
 
-            callback?.({
-                success: true,
-                message: "Left meeting successfully"
-            });
 
-        } catch (error) {
+                callback?.({
 
-            console.error(
-                "Leave meeting error:",
-                error
-            );
+                    success: true,
 
-            callback?.({
-                success: false,
-                message:
-                    "Failed to leave meeting"
-            });
+                    message:
+                        "Left meeting successfully"
+
+                });
+
+            } catch (error) {
+
+                console.error(
+                    "Leave meeting error:",
+                    error
+                );
+
+
+                callback?.({
+
+                    success: false,
+
+                    message:
+                        "Failed to leave meeting"
+
+                });
+
+            }
+
         }
-    }
-);
+    );
 
 
-    // ==========================================
-    // DISCONNECT
-    // ==========================================
+    // =================================================
+    // MEDIA STATE
+    // =================================================
 
-    socket.on("disconnect", async () => {
+    socket.on(
+        "media-state",
+        ({
+            meetingId,
+            muted,
+            cameraOff,
+            screenSharing
+        }) => {
 
-    try {
+            if (!meetingId) {
+                return;
+            }
 
-        await removeFromMeeting(
-            io,
+
+            // Make sure this socket actually
+            // belongs to that meeting.
+
+            if (
+                socket.data.meetingId !==
+                meetingId
+            ) {
+                return;
+            }
+
+
+            const mediaState = {
+
+                muted:
+                    Boolean(muted),
+
+                cameraOff:
+                    Boolean(cameraOff),
+
+                screenSharing:
+                    Boolean(screenSharing)
+
+            };
+
+
+            // Store latest state on socket.
+
+            socket.data.mediaState =
+                mediaState;
+
+
+            // Broadcast to everyone else.
+
             socket
-        );
+                .to(meetingId)
+                .emit(
+                    "media-state",
+                    {
 
-    } catch (error) {
+                        socketId:
+                            socket.id,
 
-        console.error(
-            "Disconnect cleanup error:",
-            error
-        );
-    }
-});
+                        ...mediaState
+
+                    }
+                );
+
+        }
+    );
+
+
+    // =================================================
+    // DISCONNECT
+    // =================================================
+
+    socket.on(
+        "disconnect",
+        async () => {
+
+            try {
+
+                await removeFromMeeting(
+                    io,
+                    socket
+                );
+
+            } catch (error) {
+
+                console.error(
+                    "Disconnect cleanup error:",
+                    error
+                );
+
+            }
+
+        }
+    );
 
 };
