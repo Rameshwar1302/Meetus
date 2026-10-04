@@ -52,14 +52,14 @@ const Meeting = () => {
     } = useLocalMedia();
 
 
-    // Keep latest local stream without restarting
-    // socket / WebRTC lifecycle.
-    const localStreamRef = useRef(null);
+    const localStreamRef =
+        useRef(null);
 
 
     useEffect(() => {
 
-        localStreamRef.current = stream;
+        localStreamRef.current =
+            stream;
 
     }, [stream]);
 
@@ -110,7 +110,18 @@ const Meeting = () => {
     const [screenStream, setScreenStream] =
         useState(null);
 
+    const [joinStatus, setJoinStatus] =
+    useState("connecting");
+// connecting
+// waiting
+// joined
+// rejected
 
+const [joinRejectionReason, setJoinRejectionReason] =
+    useState("");
+
+const [pendingJoinRequests, setPendingJoinRequests] =
+    useState([]);
     // =====================================================
     // REFS
     // =====================================================
@@ -127,9 +138,13 @@ const Meeting = () => {
     const screenStreamRef =
         useRef(null);
 
-    // Important:
-    // Avoid making the main WebRTC effect depend on
-    // participants state.
+    // false = first socket connection
+    // true  = this meeting has connected before
+    const hasConnectedBeforeRef =
+        useRef(false);
+
+    // Prevent WebRTC effect from depending
+    // directly on participants state.
     const participantsRef =
         useRef([]);
 
@@ -138,7 +153,10 @@ const Meeting = () => {
         useRef(null);
 
 
-    // Keep participant ref synchronized.
+    // =====================================================
+    // KEEP PARTICIPANT REF SYNCHRONIZED
+    // =====================================================
+
     useEffect(() => {
 
         participantsRef.current =
@@ -147,7 +165,10 @@ const Meeting = () => {
     }, [participants]);
 
 
-    // Auto-scroll chat.
+    // =====================================================
+    // AUTO-SCROLL CHAT
+    // =====================================================
+
     useEffect(() => {
 
         chatEndRef.current?.scrollIntoView({
@@ -158,13 +179,14 @@ const Meeting = () => {
 
 
     // =====================================================
-    // MAIN MEETING / SOCKET / WEBRTC EFFECT
+    // MAIN MEETING / SOCKET / WEBRTC
     // =====================================================
 
     useEffect(() => {
 
-        // Wait only for getUserMedia() to finish.
-        // Even if camera/mic fails, allow meeting entry.
+        // Wait until getUserMedia() has finished.
+        // Camera/mic may succeed OR fail.
+        // Either way, allow meeting entry.
 
         if (mediaLoading) {
             return;
@@ -175,10 +197,12 @@ const Meeting = () => {
 
 
         // =================================================
-        // REMOVE PEER
+        // REMOVE ONE PEER
         // =================================================
 
-        const removePeer = (peerId) => {
+        const removePeer = (
+            peerId
+        ) => {
 
             const peerConnection =
                 peerConnectionsRef
@@ -189,12 +213,11 @@ const Meeting = () => {
             if (peerConnection) {
 
                 try {
+
                     peerConnection.close();
-                } catch (error) {
-                    console.error(
-                        "Peer close error:",
-                        error
-                    );
+
+                } catch {
+                    // Ignore close errors.
                 }
 
             }
@@ -210,27 +233,76 @@ const Meeting = () => {
                 .delete(peerId);
 
 
-            setPeerStates((previous) => {
+            setPeerStates(
+                (previous) => {
 
-                const updated = {
-                    ...previous
-                };
+                    const updated = {
+                        ...previous
+                    };
 
-                delete updated[peerId];
+                    delete updated[peerId];
 
-                return updated;
+                    return updated;
+                }
+            );
 
-            });
 
-
-            setRemoteStreams((previous) =>
-                previous.filter(
-                    (item) =>
-                        item.peerId !== peerId
-                )
+            setRemoteStreams(
+                (previous) =>
+                    previous.filter(
+                        (item) =>
+                            item.peerId !==
+                            peerId
+                    )
             );
 
         };
+
+
+        // =================================================
+        // RESET ALL PEERS
+        // =================================================
+
+        const resetPeerConnections =
+            () => {
+
+                console.log(
+                    "Resetting all WebRTC peer connections..."
+                );
+
+
+                peerConnectionsRef
+                    .current
+                    .forEach(
+                        (peerConnection) => {
+
+                            try {
+
+                                peerConnection.close();
+
+                            } catch {
+                                // Ignore.
+                            }
+
+                        }
+                    );
+
+
+                peerConnectionsRef
+                    .current
+                    .clear();
+
+
+                pendingIceCandidatesRef
+                    .current
+                    .clear();
+
+
+                setRemoteStreams([]);
+
+                setPeerStates({});
+
+            };
 
 
         // =================================================
@@ -242,7 +314,8 @@ const Meeting = () => {
             socket
         ) => {
 
-            // Reuse existing peer.
+            // Reuse existing connection.
+
             if (
                 peerConnectionsRef
                     .current
@@ -277,20 +350,29 @@ const Meeting = () => {
 
 
             // Initial state.
-            setPeerStates((previous) => ({
-                ...previous,
-                [peerId]: {
-                    connectionState:
-                        "new",
-                    iceConnectionState:
-                        "new"
-                }
-            }));
+
+            setPeerStates(
+                (previous) => ({
+
+                    ...previous,
+
+                    [peerId]: {
+
+                        connectionState:
+                            "new",
+
+                        iceConnectionState:
+                            "new"
+
+                    }
+
+                })
+            );
 
 
-            // =============================================
-            // LOCAL TRACKS
-            // =============================================
+            // =================================================
+            // ADD LOCAL TRACKS
+            // =================================================
 
             const localStream =
                 localStreamRef.current;
@@ -300,32 +382,35 @@ const Meeting = () => {
 
                 localStream
                     .getTracks()
-                    .forEach((track) => {
+                    .forEach(
+                        (track) => {
 
-                        try {
+                            try {
 
-                            peerConnection.addTrack(
-                                track,
-                                localStream
-                            );
+                                peerConnection
+                                    .addTrack(
+                                        track,
+                                        localStream
+                                    );
 
-                        } catch (error) {
+                            } catch (error) {
 
-                            console.error(
-                                "Failed to add local track:",
-                                error
-                            );
+                                console.error(
+                                    "Failed to add local track:",
+                                    error
+                                );
+
+                            }
 
                         }
-
-                    });
+                    );
 
             }
 
 
-            // =============================================
+            // =================================================
             // ICE CONNECTION STATE
-            // =============================================
+            // =================================================
 
             peerConnection
                 .oniceconnectionstatechange =
@@ -369,9 +454,9 @@ const Meeting = () => {
                 };
 
 
-            // =============================================
+            // =================================================
             // SIGNALING STATE
-            // =============================================
+            // =================================================
 
             peerConnection
                 .onsignalingstatechange =
@@ -391,9 +476,9 @@ const Meeting = () => {
                 };
 
 
-            // =============================================
-            // PEER CONNECTION STATE
-            // =============================================
+            // =================================================
+            // CONNECTION STATE
+            // =================================================
 
             peerConnection
                 .onconnectionstatechange =
@@ -435,10 +520,6 @@ const Meeting = () => {
                     );
 
 
-                    // =================================
-                    // FAILED
-                    // =================================
-
                     if (
                         state ===
                         "failed"
@@ -454,12 +535,9 @@ const Meeting = () => {
                         );
 
                         return;
+
                     }
 
-
-                    // =================================
-                    // CLOSED
-                    // =================================
 
                     if (
                         state ===
@@ -470,15 +548,14 @@ const Meeting = () => {
                             peerId
                         );
 
-                        return;
                     }
 
                 };
 
 
-            // =============================================
+            // =================================================
             // ICE CANDIDATE
-            // =============================================
+            // =================================================
 
             peerConnection.onicecandidate =
                 (event) => {
@@ -494,12 +571,6 @@ const Meeting = () => {
                     if (!socket.connected) {
                         return;
                     }
-
-
-                    console.log(
-                        "Sending ICE candidate:",
-                        peerId
-                    );
 
 
                     socket.emit(
@@ -524,9 +595,9 @@ const Meeting = () => {
                 };
 
 
-            // =============================================
+            // =================================================
             // REMOTE TRACK
-            // =============================================
+            // =================================================
 
             peerConnection.ontrack =
                 (event) => {
@@ -534,12 +605,6 @@ const Meeting = () => {
                     if (cancelled) {
                         return;
                     }
-
-
-                    console.log(
-                        "Remote track received:",
-                        peerId
-                    );
 
 
                     const remoteStream =
@@ -551,8 +616,6 @@ const Meeting = () => {
                     }
 
 
-                    // Get participant from ref
-                    // to avoid effect dependency.
                     const participant =
                         participantsRef
                             .current
@@ -626,7 +689,7 @@ const Meeting = () => {
 
 
         // =================================================
-        // FLUSH PENDING ICE CANDIDATES
+        // FLUSH ICE QUEUE
         // =================================================
 
         const flushPendingIceCandidates =
@@ -644,13 +707,6 @@ const Meeting = () => {
                 if (!candidates) {
                     return;
                 }
-
-
-                console.log(
-                    "Flushing queued ICE candidates:",
-                    peerId,
-                    candidates.length
-                );
 
 
                 for (
@@ -695,7 +751,7 @@ const Meeting = () => {
             try {
 
                 // =========================================
-                // VERIFY MEETING
+                // GET MEETING
                 // =========================================
 
                 const response =
@@ -715,7 +771,7 @@ const Meeting = () => {
 
 
                 // =========================================
-                // GET AUTH TOKEN
+                // GET TOKEN
                 // =========================================
 
                 const userToken =
@@ -742,6 +798,7 @@ const Meeting = () => {
                     );
 
                     return;
+
                 }
 
 
@@ -787,7 +844,273 @@ const Meeting = () => {
 
 
                 // =========================================
-                // CONNECT
+                // =========================================
+                // JOIN ROOM AFTER ADMISSION
+                // =========================================
+
+                let roomJoinInProgress = false;
+                let roomJoined = false;
+
+
+                const joinMeetingRoom = () => {
+
+                    if (
+                        cancelled ||
+                        roomJoinInProgress ||
+                        roomJoined
+                    ) {
+                        return;
+                    }
+
+
+                    roomJoinInProgress = true;
+
+
+                    socket.emit(
+                        "join-call",
+                        {
+                            meetingId
+                        },
+                        (joinResponse) => {
+
+                            roomJoinInProgress = false;
+
+
+                            if (cancelled) {
+                                return;
+                            }
+
+
+                            console.log(
+                                "Join response:",
+                                joinResponse
+                            );
+
+
+                            if (
+                                !joinResponse?.success
+                            ) {
+
+                                roomJoined = false;
+
+                                setJoinStatus(
+                                    "rejected"
+                                );
+
+                                setJoinRejectionReason(
+                                    joinResponse?.message ||
+                                    "Failed to join meeting"
+                                );
+
+                                return;
+
+                            }
+
+
+                            roomJoined = true;
+
+                            setJoinStatus(
+                                "joined"
+                            );
+
+
+                            // =================================
+                            // PARTICIPANTS
+                            // =================================
+
+                            const initialParticipants =
+                                joinResponse.participants ||
+                                [];
+
+
+                            participantsRef.current =
+                                initialParticipants;
+
+
+                            setParticipants(
+                                initialParticipants
+                            );
+
+
+                            // =================================
+                            // MEDIA STATES
+                            // =================================
+
+                            const initialMediaStates =
+                                {};
+
+
+                            initialParticipants.forEach(
+                                (participant) => {
+
+                                    initialMediaStates[
+                                        participant.socketId
+                                    ] =
+                                        participant.mediaState ||
+                                        {
+                                            ...defaultMediaState
+                                        };
+
+                                }
+                            );
+
+
+                            setMediaStates(
+                                initialMediaStates
+                            );
+
+
+                            // =================================
+                            // HOST
+                            // =================================
+
+                            setIsHost(
+                                Boolean(
+                                    joinResponse
+                                        ?.self
+                                        ?.isHost
+                                )
+                            );
+
+
+                            // =================================
+                            // CHAT HISTORY
+                            // =================================
+
+                            socket.emit(
+                                "get-chat-history",
+                                (historyResponse) => {
+
+                                    if (
+                                        !historyResponse?.success
+                                    ) {
+
+                                        console.error(
+                                            "Chat history error:",
+                                            historyResponse?.message
+                                        );
+
+                                        return;
+                                    }
+
+
+                                    setMessages(
+                                        historyResponse.messages ||
+                                        []
+                                    );
+
+                                }
+                            );
+
+                        }
+                    );
+
+                };
+
+
+                // =========================================
+                // JOIN REQUEST FROM A NEW PARTICIPANT
+                // =========================================
+
+                socket.on(
+                    "join-request",
+                    (request) => {
+
+                        if (
+                            cancelled ||
+                            request?.meetingId !== meetingId
+                        ) {
+                            return;
+                        }
+
+
+                        setPendingJoinRequests(
+                            (previous) => {
+
+                                const exists =
+                                    previous.some(
+                                        (item) =>
+                                            item.requestId ===
+                                            request.requestId
+                                    );
+
+
+                                if (exists) {
+                                    return previous;
+                                }
+
+
+                                return [
+                                    ...previous,
+                                    request
+                                ];
+
+                            }
+                        );
+
+                    }
+                );
+
+
+                // =========================================
+                // REQUESTER APPROVED
+                // =========================================
+
+                socket.on(
+                    "join-approved",
+                    ({ meetingId: approvedMeetingId }) => {
+
+                        if (
+                            cancelled ||
+                            approvedMeetingId !== meetingId
+                        ) {
+                            return;
+                        }
+
+
+                        setJoinRejectionReason("");
+                        setJoinStatus("connecting");
+
+                        joinMeetingRoom();
+
+                    }
+                );
+
+
+                // =========================================
+                // REQUESTER REJECTED
+                // =========================================
+
+                socket.on(
+                    "join-rejected",
+                    ({
+                        meetingId: rejectedMeetingId,
+                        message
+                    }) => {
+
+                        if (
+                            cancelled ||
+                            rejectedMeetingId !== meetingId
+                        ) {
+                            return;
+                        }
+
+
+                        roomJoined = false;
+
+                        setJoinStatus("rejected");
+
+                        setJoinRejectionReason(
+                            message ||
+                            "The host rejected your request"
+                        );
+
+                    }
+                );
+
+
+                // =========================================
+                // SOCKET CONNECT / RECONNECT
                 // =========================================
 
                 socket.on(
@@ -799,150 +1122,100 @@ const Meeting = () => {
                         }
 
 
+                        const isReconnect =
+                            hasConnectedBeforeRef.current;
+
+
                         console.log(
-                            "Socket connected:",
+                            isReconnect
+                                ? "Socket reconnected:"
+                                : "Socket connected:",
                             socket.id
                         );
 
 
-                        setConnected(
-                            true
+                        if (isReconnect) {
+
+                            resetPeerConnections();
+
+                            participantsRef.current = [];
+
+                            setParticipants([]);
+
+                            setMediaStates({});
+
+                            roomJoined = false;
+
+                        }
+
+
+                        hasConnectedBeforeRef.current =
+                            true;
+
+
+                        setConnected(true);
+
+                        setJoinStatus(
+                            isReconnect
+                                ? "connecting"
+                                : "connecting"
                         );
 
 
                         // =================================
-                        // JOIN ROOM
+                        // REQUEST ACCESS
                         // =================================
 
                         socket.emit(
-                            "join-call",
-                            {
-                                meetingId
-                            },
-                            (joinResponse) => {
+                            "request-to-join",
+                            { meetingId },
+                            (response) => {
 
-                                if (
-                                    cancelled
-                                ) {
+                                if (cancelled) {
                                     return;
                                 }
 
 
                                 console.log(
-                                    "Join response:",
-                                    joinResponse
+                                    "Join access response:",
+                                    response
                                 );
 
 
-                                if (
-                                    !joinResponse?.success
-                                ) {
+                                if (!response?.success) {
 
-                                    setError(
-                                        joinResponse
-                                            ?.message ||
-                                        "Failed to join meeting"
+                                    setJoinStatus("rejected");
+
+                                    setJoinRejectionReason(
+                                        response?.message ||
+                                        "Unable to request meeting access"
                                     );
 
                                     return;
                                 }
 
 
-                                // =============================
-                                // PARTICIPANTS
-                                // =============================
+                                if (
+                                    response.status ===
+                                    "approved"
+                                ) {
 
-                                const initialParticipants =
-                                    joinResponse
-                                        .participants ||
-                                    [];
+                                    setJoinRejectionReason("");
 
+                                    joinMeetingRoom();
 
-                                participantsRef.current =
-                                    initialParticipants;
-
-
-                                setParticipants(
-                                    initialParticipants
-                                );
+                                    return;
+                                }
 
 
-                                // =============================
-                                // MEDIA STATES
-                                // =============================
+                                if (
+                                    response.status ===
+                                    "pending"
+                                ) {
 
-                                const initialMediaStates =
-                                    {};
+                                    setJoinStatus("waiting");
 
-
-                                initialParticipants.forEach(
-                                    (participant) => {
-
-                                        initialMediaStates[
-                                            participant
-                                                .socketId
-                                        ] =
-                                            participant
-                                                .mediaState ||
-                                            {
-                                                ...defaultMediaState
-                                            };
-
-                                    }
-                                );
-
-
-                                setMediaStates(
-                                    initialMediaStates
-                                );
-
-
-                                // =============================
-                                // HOST
-                                // =============================
-
-                                setIsHost(
-                                    Boolean(
-                                        joinResponse
-                                            ?.self
-                                            ?.isHost
-                                    )
-                                );
-
-
-                                // =============================
-                                // CHAT HISTORY
-                                // =============================
-
-                                socket.emit(
-                                    "get-chat-history",
-                                    (
-                                        historyResponse
-                                    ) => {
-
-                                        if (
-                                            !historyResponse
-                                                ?.success
-                                        ) {
-
-                                            console.error(
-                                                "Chat history error:",
-                                                historyResponse
-                                                    ?.message
-                                            );
-
-                                            return;
-                                        }
-
-
-                                        setMessages(
-                                            historyResponse
-                                                .messages ||
-                                            []
-                                        );
-
-                                    }
-                                );
+                                }
 
                             }
                         );
@@ -952,6 +1225,37 @@ const Meeting = () => {
 
 
                 // =========================================
+                // SOCKET DISCONNECT
+                // =========================================
+
+                socket.on(
+                    "disconnect",
+                    (reason) => {
+
+                        console.warn(
+                            "Socket disconnected:",
+                            reason
+                        );
+
+
+                        setConnected(false);
+
+
+                        if (!cancelled) {
+                            roomJoined = false;
+                            setJoinStatus("connecting");
+                        }
+
+                        /*
+                         * Do not destroy peer connections here.
+                         * Socket.IO may reconnect automatically.
+                         * They are reset after reconnection.
+                         */
+
+                    }
+                );
+
+
                 // USER JOINED
                 // =========================================
 
@@ -970,7 +1274,6 @@ const Meeting = () => {
                         );
 
 
-                        // Update ref immediately.
                         const alreadyExists =
                             participantsRef
                                 .current
@@ -1033,10 +1336,6 @@ const Meeting = () => {
 
                         try {
 
-                            // =================================
-                            // CREATE OFFER
-                            // =================================
-
                             const offer =
                                 await peerConnection
                                     .createOffer();
@@ -1046,12 +1345,6 @@ const Meeting = () => {
                                 .setLocalDescription(
                                     offer
                                 );
-
-
-                            console.log(
-                                "Sending offer to:",
-                                participant.socketId
-                            );
 
 
                             socket.emit(
@@ -1133,7 +1426,7 @@ const Meeting = () => {
 
 
                 // =========================================
-                // SIGNAL
+                // SIGNALING
                 // =========================================
 
                 socket.on(
@@ -1150,16 +1443,6 @@ const Meeting = () => {
 
                         try {
 
-                            console.log(
-                                "Signal received:",
-                                {
-                                    from,
-                                    type:
-                                        data?.type
-                                }
-                            );
-
-
                             const peerConnection =
                                 createPeerConnection(
                                     from,
@@ -1175,6 +1458,29 @@ const Meeting = () => {
                                 data?.type ===
                                 "offer"
                             ) {
+
+                                /*
+                                 * We only accept an offer
+                                 * when this peer isn't already
+                                 * trying to send its own offer.
+                                 */
+
+                                if (
+                                    peerConnection
+                                        .signalingState !==
+                                    "stable"
+                                ) {
+
+                                    console.warn(
+                                        "Ignoring offer because signaling state is:",
+                                        peerConnection
+                                            .signalingState
+                                    );
+
+                                    return;
+
+                                }
+
 
                                 await peerConnection
                                     .setRemoteDescription(
@@ -1203,7 +1509,8 @@ const Meeting = () => {
                                     "signal",
                                     {
 
-                                        to: from,
+                                        to:
+                                            from,
 
                                         data: {
 
@@ -1231,6 +1538,23 @@ const Meeting = () => {
                                 "answer"
                             ) {
 
+                                if (
+                                    peerConnection
+                                        .signalingState !==
+                                    "have-local-offer"
+                                ) {
+
+                                    console.warn(
+                                        "Ignoring unexpected answer. State:",
+                                        peerConnection
+                                            .signalingState
+                                    );
+
+                                    return;
+
+                                }
+
+
                                 await peerConnection
                                     .setRemoteDescription(
                                         data.sdp
@@ -1246,7 +1570,7 @@ const Meeting = () => {
 
 
                             // =================================
-                            // ICE CANDIDATE
+                            // ICE
                             // =================================
 
                             else if (
@@ -1256,6 +1580,13 @@ const Meeting = () => {
 
                                 const candidate =
                                     data.candidate;
+
+
+                                if (
+                                    !candidate
+                                ) {
+                                    return;
+                                }
 
 
                                 if (
@@ -1338,7 +1669,6 @@ const Meeting = () => {
                         );
 
 
-                        // Remove from participant ref.
                         participantsRef.current =
                             participantsRef
                                 .current
@@ -1355,7 +1685,6 @@ const Meeting = () => {
                         );
 
 
-                        // Remove media state.
                         setMediaStates(
                             (previous) => {
 
@@ -1363,9 +1692,11 @@ const Meeting = () => {
                                     ...previous
                                 };
 
+
                                 delete updated[
                                     socketId
                                 ];
+
 
                                 return updated;
 
@@ -1373,7 +1704,6 @@ const Meeting = () => {
                         );
 
 
-                        // Remove WebRTC peer.
                         removePeer(
                             socketId
                         );
@@ -1396,20 +1726,18 @@ const Meeting = () => {
                         );
 
 
-                        setError(
-                            "This meeting has ended."
-                        );
-
-
                         peerConnectionsRef
                             .current
                             .forEach(
                                 (peerConnection) => {
 
                                     try {
-                                        peerConnection.close();
+
+                                        peerConnection
+                                            .close();
+
                                     } catch {
-                                        // Ignore close error.
+                                        // Ignore.
                                     }
 
                                 }
@@ -1426,9 +1754,9 @@ const Meeting = () => {
                             .clear();
 
 
-                        setPeerStates({});
-
                         setRemoteStreams([]);
+
+                        setPeerStates({});
 
 
                         socket.disconnect();
@@ -1454,7 +1782,7 @@ const Meeting = () => {
 
 
                 // =========================================
-                // SOCKET ERROR
+                // SOCKET CONNECTION ERROR
                 // =========================================
 
                 socket.on(
@@ -1472,7 +1800,20 @@ const Meeting = () => {
                         );
 
 
-                        if (!cancelled) {
+                        /*
+                         * Initial connection failure:
+                         * show an error.
+                         *
+                         * Reconnect failure:
+                         * don't immediately destroy
+                         * the meeting UI.
+                         */
+
+                        if (
+                            !hasConnectedBeforeRef
+                                .current &&
+                            !cancelled
+                        ) {
 
                             setError(
                                 error.message ||
@@ -1486,7 +1827,7 @@ const Meeting = () => {
 
 
                 // =========================================
-                // CONNECT
+                // START SOCKET
                 // =========================================
 
                 socket.connect();
@@ -1544,7 +1885,8 @@ const Meeting = () => {
                 activeScreenStream
                     .getTracks()
                     .forEach(
-                        (track) => track.stop()
+                        (track) =>
+                            track.stop()
                     );
 
             }
@@ -1591,7 +1933,7 @@ const Meeting = () => {
 
 
             // =============================================
-            // PEERS
+            // PEER CONNECTIONS
             // =============================================
 
             peerConnectionsRef
@@ -1600,7 +1942,9 @@ const Meeting = () => {
                     (peerConnection) => {
 
                         try {
+
                             peerConnection.close();
+
                         } catch {
                             // Ignore.
                         }
@@ -1624,13 +1968,18 @@ const Meeting = () => {
 
 
             // =============================================
-            // STATE
+            // RESET
             // =============================================
 
             participantsRef.current =
                 [];
 
+            hasConnectedBeforeRef
+                .current =
+                false;
+
             setPeerStates({});
+
             setRemoteStreams([]);
 
         };
@@ -1708,6 +2057,102 @@ const Meeting = () => {
 
 
     // =====================================================
+    // ADMIT PARTICIPANT
+    // =====================================================
+
+    const admitUser = (
+        requestId
+    ) => {
+
+        const socket =
+            socketRef.current;
+
+
+        if (!socket?.connected) {
+            return;
+        }
+
+
+        socket.emit(
+            "admit-user",
+            { requestId },
+            (response) => {
+
+                if (!response?.success) {
+
+                    console.error(
+                        "Failed to admit participant:",
+                        response?.message
+                    );
+
+                    return;
+                }
+
+
+                setPendingJoinRequests(
+                    (previous) =>
+                        previous.filter(
+                            (item) =>
+                                item.requestId !==
+                                requestId
+                        )
+                );
+
+            }
+        );
+
+    };
+
+
+    // =====================================================
+    // REJECT PARTICIPANT
+    // =====================================================
+
+    const rejectUser = (
+        requestId
+    ) => {
+
+        const socket =
+            socketRef.current;
+
+
+        if (!socket?.connected) {
+            return;
+        }
+
+
+        socket.emit(
+            "reject-user",
+            { requestId },
+            (response) => {
+
+                if (!response?.success) {
+
+                    console.error(
+                        "Failed to reject participant:",
+                        response?.message
+                    );
+
+                    return;
+                }
+
+
+                setPendingJoinRequests(
+                    (previous) =>
+                        previous.filter(
+                            (item) =>
+                                item.requestId !==
+                                requestId
+                        )
+                );
+
+            }
+        );
+
+    };
+
+
+    // =====================================================
     // LEAVE MEETING
     // =====================================================
 
@@ -1749,7 +2194,9 @@ const Meeting = () => {
                 (peerConnection) => {
 
                     try {
+
                         peerConnection.close();
+
                     } catch {
                         // Ignore.
                     }
@@ -1771,6 +2218,9 @@ const Meeting = () => {
         sessionStorage.removeItem(
             "guestToken"
         );
+
+
+        setJoinStatus("rejected");
 
 
         navigate(
@@ -1931,59 +2381,254 @@ const Meeting = () => {
     // START SCREEN SHARING
     // =====================================================
 
-    const startScreenSharing = async () => {
+    const startScreenSharing =
+        async () => {
 
-        if (isScreenSharing) {
-            return;
-        }
-
-
-        try {
-
-            const displayStream =
-                await navigator
-                    .mediaDevices
-                    .getDisplayMedia({
-                        video: true,
-                        audio: false
-                    });
-
-
-            const screenTrack =
-                displayStream
-                    .getVideoTracks()[0];
-
-
-            if (!screenTrack) {
-
-                displayStream
-                    .getTracks()
-                    .forEach(
-                        (track) =>
-                            track.stop()
-                    );
-
+            if (isScreenSharing) {
                 return;
             }
 
 
+            try {
+
+                const displayStream =
+                    await navigator
+                        .mediaDevices
+                        .getDisplayMedia({
+                            video: true,
+                            audio: false
+                        });
+
+
+                const screenTrack =
+                    displayStream
+                        .getVideoTracks()[0];
+
+
+                if (!screenTrack) {
+
+                    displayStream
+                        .getTracks()
+                        .forEach(
+                            (track) =>
+                                track.stop()
+                        );
+
+                    return;
+                }
+
+
+                screenStreamRef.current =
+                    displayStream;
+
+
+                setScreenStream(
+                    displayStream
+                );
+
+
+                setIsScreenSharing(
+                    true
+                );
+
+
+                // =========================================
+                // BROADCAST MEDIA STATE
+                // =========================================
+
+                const socket =
+                    socketRef.current;
+
+
+                if (socket?.connected) {
+
+                    socket.emit(
+                        "media-state",
+                        {
+
+                            meetingId,
+
+                            muted:
+                                isMuted,
+
+                            cameraOff:
+                                isCameraOff,
+
+                            screenSharing:
+                                true
+
+                        }
+                    );
+
+                }
+
+
+                // =========================================
+                // REPLACE CAMERA TRACK
+                // =========================================
+
+                const replacements = [];
+
+
+                peerConnectionsRef
+                    .current
+                    .forEach(
+                        (peerConnection) => {
+
+                            const sender =
+                                peerConnection
+                                    .getSenders()
+                                    .find(
+                                        (item) =>
+                                            item
+                                                .track
+                                                ?.kind ===
+                                            "video"
+                                    );
+
+
+                            if (sender) {
+
+                                replacements.push(
+                                    sender
+                                        .replaceTrack(
+                                            screenTrack
+                                        )
+                                );
+
+                            }
+
+                        }
+                    );
+
+
+                await Promise.allSettled(
+                    replacements
+                );
+
+
+                // Browser "Stop sharing".
+                screenTrack.onended =
+                    () => {
+
+                        stopScreenSharing();
+
+                    };
+
+            } catch (error) {
+
+                console.error(
+                    "Screen sharing failed:",
+                    error
+                );
+
+            }
+
+        };
+
+
+    // =====================================================
+    // STOP SCREEN SHARING
+    // =====================================================
+
+    const stopScreenSharing =
+        async () => {
+
+            const displayStream =
+                screenStreamRef.current;
+
+
+            if (!displayStream) {
+                return;
+            }
+
+
+            const cameraStream =
+                localStreamRef.current;
+
+
+            const cameraTrack =
+                cameraStream
+                    ?.getVideoTracks()[0];
+
+
+            // =========================================
+            // RESTORE CAMERA TRACK
+            // =========================================
+
+            if (cameraTrack) {
+
+                const replacements = [];
+
+
+                peerConnectionsRef
+                    .current
+                    .forEach(
+                        (peerConnection) => {
+
+                            const sender =
+                                peerConnection
+                                    .getSenders()
+                                    .find(
+                                        (item) =>
+                                            item
+                                                .track
+                                                ?.kind ===
+                                            "video"
+                                    );
+
+
+                            if (sender) {
+
+                                replacements.push(
+                                    sender
+                                        .replaceTrack(
+                                            cameraTrack
+                                        )
+                                );
+
+                            }
+
+                        }
+                    );
+
+
+                await Promise.allSettled(
+                    replacements
+                );
+
+            }
+
+
+            // =========================================
+            // STOP DISPLAY STREAM
+            // =========================================
+
+            displayStream
+                .getTracks()
+                .forEach(
+                    (track) =>
+                        track.stop()
+                );
+
+
             screenStreamRef.current =
-                displayStream;
+                null;
 
 
             setScreenStream(
-                displayStream
+                null
             );
 
 
             setIsScreenSharing(
-                true
+                false
             );
 
 
-            // =============================================
+            // =========================================
             // BROADCAST
-            // =============================================
+            // =========================================
 
             const socket =
                 socketRef.current;
@@ -2004,257 +2649,63 @@ const Meeting = () => {
                             isCameraOff,
 
                         screenSharing:
-                            true
+                            false
 
                     }
                 );
 
             }
 
-
-            // =============================================
-            // REPLACE VIDEO TRACK
-            // =============================================
-
-            const replacements = [];
-
-
-            peerConnectionsRef
-                .current
-                .forEach(
-                    (peerConnection) => {
-
-                        const sender =
-                            peerConnection
-                                .getSenders()
-                                .find(
-                                    (item) =>
-                                        item
-                                            .track
-                                            ?.kind ===
-                                        "video"
-                                );
-
-
-                        if (sender) {
-
-                            replacements.push(
-                                sender.replaceTrack(
-                                    screenTrack
-                                )
-                            );
-
-                        }
-
-                    }
-                );
-
-
-            await Promise.allSettled(
-                replacements
-            );
-
-
-            // Browser "Stop sharing"
-            // button / browser UI.
-
-            screenTrack.onended =
-                () => {
-
-                    stopScreenSharing();
-
-                };
-
-
-        } catch (error) {
-
-            console.error(
-                "Screen sharing failed:",
-                error
-            );
-
-        }
-
-    };
-
-
-    // =====================================================
-    // STOP SCREEN SHARING
-    // =====================================================
-
-    const stopScreenSharing = async () => {
-
-        const displayStream =
-            screenStreamRef.current;
-
-
-        if (!displayStream) {
-            return;
-        }
-
-
-        const cameraStream =
-            localStreamRef.current;
-
-
-        const cameraTrack =
-            cameraStream
-                ?.getVideoTracks()[0];
-
-
-        // =============================================
-        // RESTORE CAMERA
-        // =============================================
-
-        if (cameraTrack) {
-
-            const replacements = [];
-
-
-            peerConnectionsRef
-                .current
-                .forEach(
-                    (peerConnection) => {
-
-                        const sender =
-                            peerConnection
-                                .getSenders()
-                                .find(
-                                    (item) =>
-                                        item
-                                            .track
-                                            ?.kind ===
-                                        "video"
-                                );
-
-
-                        if (sender) {
-
-                            replacements.push(
-                                sender.replaceTrack(
-                                    cameraTrack
-                                )
-                            );
-
-                        }
-
-                    }
-                );
-
-
-            await Promise.allSettled(
-                replacements
-            );
-
-        }
-
-
-        // =============================================
-        // STOP DISPLAY STREAM
-        // =============================================
-
-        displayStream
-            .getTracks()
-            .forEach(
-                (track) =>
-                    track.stop()
-            );
-
-
-        screenStreamRef.current =
-            null;
-
-
-        setScreenStream(
-            null
-        );
-
-
-        setIsScreenSharing(
-            false
-        );
-
-
-        // =============================================
-        // BROADCAST
-        // =============================================
-
-        const socket =
-            socketRef.current;
-
-
-        if (socket?.connected) {
-
-            socket.emit(
-                "media-state",
-                {
-
-                    meetingId,
-
-                    muted:
-                        isMuted,
-
-                    cameraOff:
-                        isCameraOff,
-
-                    screenSharing:
-                        false
-
-                }
-            );
-
-        }
-
-    };
+        };
 
 
     // =====================================================
     // END MEETING
     // =====================================================
 
-    const endMeeting = async () => {
+    const endMeeting =
+        async () => {
 
-        try {
+            try {
 
-            console.log(
-                "Ending meeting..."
-            );
-
-
-            await api.post(
-                `/meeting/${meetingId}/end`
-            );
+                console.log(
+                    "Ending meeting..."
+                );
 
 
-            sessionStorage.removeItem(
-                "guestToken"
-            );
+                await api.post(
+                    `/meeting/${meetingId}/end`
+                );
 
 
-            navigate(
-                "/dashboard",
-                {
-                    replace: true
-                }
-            );
+                sessionStorage.removeItem(
+                    "guestToken"
+                );
 
 
-        } catch (error) {
+                navigate(
+                    "/dashboard",
+                    {
+                        replace: true
+                    }
+                );
 
-            console.error(
-                "End meeting error:",
-                error
-            );
+            } catch (error) {
+
+                console.error(
+                    "End meeting error:",
+                    error
+                );
 
 
-            setError(
-                error.response?.data?.message ||
-                "Failed to end meeting"
-            );
+                setError(
+                    error.response?.data?.message ||
+                    "Failed to end meeting"
+                );
 
-        }
+            }
 
-    };
+        };
 
 
     // =====================================================
@@ -2281,6 +2732,105 @@ const Meeting = () => {
                 >
                     Go Home
                 </button>
+
+            </div>
+        );
+
+    }
+
+
+    // =====================================================
+    // WAITING FOR HOST
+    // =====================================================
+
+    if (
+        joinStatus ===
+        "waiting"
+    ) {
+
+        return (
+            <div>
+
+                <h1>
+                    Waiting for Host
+                </h1>
+
+                <p>
+                    Your request has been sent to the host.
+                </p>
+
+                <p>
+                    Please wait for the host to admit you.
+                </p>
+
+                <button
+                    onClick={
+                        leaveMeeting
+                    }
+                >
+                    Cancel
+                </button>
+
+            </div>
+        );
+
+    }
+
+
+    // =====================================================
+    // REQUEST REJECTED
+    // =====================================================
+
+    if (
+        joinStatus ===
+        "rejected"
+    ) {
+
+        return (
+            <div>
+
+                <h1>
+                    Unable to Join Meeting
+                </h1>
+
+                <p>
+                    {joinRejectionReason ||
+                        "The host did not admit you."}
+                </p>
+
+                <button
+                    onClick={() =>
+                        navigate("/")
+                    }
+                >
+                    Go Home
+                </button>
+
+            </div>
+        );
+
+    }
+
+
+    // =====================================================
+    // CONNECTING / ACCESS CHECK
+    // =====================================================
+
+    if (
+        joinStatus !==
+        "joined"
+    ) {
+
+        return (
+            <div>
+
+                <h1>
+                    Joining Meeting
+                </h1>
+
+                <p>
+                    Connecting and checking meeting access...
+                </p>
 
             </div>
         );
@@ -2318,9 +2868,9 @@ const Meeting = () => {
             <hr />
 
 
-            {/* ==========================================
+            {/* =================================================
                 LOCAL VIDEO
-            =========================================== */}
+            ================================================= */}
 
             <h2>
                 My Camera
@@ -2413,9 +2963,9 @@ const Meeting = () => {
             <hr />
 
 
-            {/* ==========================================
+            {/* =================================================
                 REMOTE VIDEOS
-            =========================================== */}
+            ================================================= */}
 
             <h2>
                 Remote Participants
@@ -2521,9 +3071,82 @@ const Meeting = () => {
             <hr />
 
 
-            {/* ==========================================
+            {/* =================================================
+                HOST JOIN REQUESTS
+            ================================================= */}
+
+            {isHost &&
+                pendingJoinRequests.length > 0 && (
+
+                <div>
+
+                    <h2>
+                        Join Requests
+                    </h2>
+
+                    {pendingJoinRequests.map(
+                        (request) => (
+
+                            <div
+                                key={
+                                    request.requestId
+                                }
+                            >
+
+                                <strong>
+                                    {
+                                        request.user.name
+                                    }
+                                </strong>
+
+                                {" "}
+
+                                (
+                                {
+                                    request.user.role
+                                }
+                                )
+
+                                {" "}
+
+                                <button
+                                    onClick={() =>
+                                        admitUser(
+                                            request.requestId
+                                        )
+                                    }
+                                >
+                                    Admit
+                                </button>
+
+                                {" "}
+
+                                <button
+                                    onClick={() =>
+                                        rejectUser(
+                                            request.requestId
+                                        )
+                                    }
+                                >
+                                    Reject
+                                </button>
+
+                            </div>
+
+                        )
+                    )}
+
+                </div>
+
+            )}
+
+
+            <hr />
+
+
+            {/* =================================================
                 CHAT
-            =========================================== */}
+            ================================================= */}
 
             <h2>
                 Chat
@@ -2560,7 +3183,9 @@ const Meeting = () => {
                     (message) => (
 
                         <div
-                            key={message.id}
+                            key={
+                                message.id
+                            }
                             style={{
                                 marginBottom:
                                     "10px"
@@ -2569,13 +3194,17 @@ const Meeting = () => {
 
                             <strong>
                                 {
-                                    message.senderName
+                                    message
+                                        .senderName
                                 }
                             </strong>
 
+
                             {" "}
 
-                            {message.senderRole ===
+
+                            {message
+                                .senderRole ===
                                 "guest" && (
                                 <small>
                                     (Guest)
@@ -2585,7 +3214,8 @@ const Meeting = () => {
 
                             <div>
                                 {
-                                    message.message
+                                    message
+                                        .message
                                 }
                             </div>
 
@@ -2596,7 +3226,9 @@ const Meeting = () => {
 
 
                 <div
-                    ref={chatEndRef}
+                    ref={
+                        chatEndRef
+                    }
                 />
 
             </div>
@@ -2617,7 +3249,8 @@ const Meeting = () => {
                     onChange={
                         (event) =>
                             setChatMessage(
-                                event.target.value
+                                event.target
+                                    .value
                             )
                     }
                     onKeyDown={
@@ -2647,9 +3280,9 @@ const Meeting = () => {
             <hr />
 
 
-            {/* ==========================================
+            {/* =================================================
                 PARTICIPANTS
-            =========================================== */}
+            ================================================= */}
 
             <h2>
                 Participants
@@ -2741,9 +3374,9 @@ const Meeting = () => {
             <br />
 
 
-            {/* ==========================================
+            {/* =================================================
                 MEETING CONTROLS
-            =========================================== */}
+            ================================================= */}
 
             <button
                 onClick={
