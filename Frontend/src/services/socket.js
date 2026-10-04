@@ -1,10 +1,5 @@
 import { io } from "socket.io-client";
 
-
-const SOCKET_URL =
-    import.meta.env.VITE_SOCKET_URL;
-
-
 export const createSocket = (token) => {
 
     if (!token) {
@@ -13,8 +8,7 @@ export const createSocket = (token) => {
         );
     }
 
-
-    return io(SOCKET_URL, {
+    return io(import.meta.env.VITE_SOCKET_URL || undefined, {
 
         autoConnect: false,
 
