@@ -73,44 +73,84 @@ const handleCreateMeeting = async () => {
     };
 
 
-    return (
-        <div>
+        return (
+        <div className="min-h-screen bg-stone-50 text-stone-900">
+            <header className="border-b border-stone-200 bg-white">
+                <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
+                    <span className="text-xl font-semibold tracking-tight">
+                        Meetus
+                    </span>
 
-            <h1>
-                Welcome, {user?.name}
-            </h1>
+                    <div className="flex items-center gap-4">
+                        <span className="hidden text-sm text-stone-600 sm:block">
+                            {user?.name}
+                        </span>
+                        <button
+                            onClick={handleLogout}
+                            className="rounded-lg border border-stone-300 bg-white px-4 py-2 text-sm font-medium text-stone-700 transition hover:bg-stone-100"
+                        >
+                            Log out
+                        </button>
+                    </div>
+                </div>
+            </header>
 
-            {error && (
-                <p>{error}</p>
-            )}
+            <main className="mx-auto max-w-5xl px-6 py-12">
+                <h1 className="text-3xl font-semibold tracking-tight">
+                    Hi, {user?.name}
+                </h1>
+                <p className="mt-1 text-stone-600">
+                    What would you like to do?
+                </p>
 
-            <button
-                onClick={handleCreateMeeting}
-                disabled={loading}
-            >
-                {loading
-                    ? "Creating..."
-                    : "Create Meeting"}
-            </button>
+                {error && (
+                    <p
+                        role="alert"
+                        className="mt-6 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"
+                    >
+                        {error}
+                    </p>
+                )}
 
-            <button
-                onClick={handleJoinMeeting}
-            >
-                Join Meeting
-            </button>
+                <div className="mt-8 grid gap-4 md:grid-cols-3">
+                    <button
+                        onClick={handleCreateMeeting}
+                        disabled={loading}
+                        className="rounded-2xl bg-blue-600 p-6 text-left text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-70"
+                    >
+                        <span className="block text-lg font-semibold">
+                            {loading ? "Setting up your room..." : "New meeting"}
+                        </span>
+                        <span className="mt-1 block text-sm text-blue-100">
+                            Start a room and share the link.
+                        </span>
+                    </button>
 
-            <button
-                onClick={handleHistory}
-            >
-                Meeting History
-            </button>
+                    <button
+                        onClick={handleJoinMeeting}
+                        className="rounded-2xl border border-stone-200 bg-white p-6 text-left transition hover:border-stone-300 hover:shadow-sm"
+                    >
+                        <span className="block text-lg font-semibold">
+                            Join a meeting
+                        </span>
+                        <span className="mt-1 block text-sm text-stone-600">
+                            Have a meeting ID? Enter it here.
+                        </span>
+                    </button>
 
-            <button
-                onClick={handleLogout}
-            >
-                Logout
-            </button>
-
+                    <button
+                        onClick={handleHistory}
+                        className="rounded-2xl border border-stone-200 bg-white p-6 text-left transition hover:border-stone-300 hover:shadow-sm"
+                    >
+                        <span className="block text-lg font-semibold">
+                            Meeting history
+                        </span>
+                        <span className="mt-1 block text-sm text-stone-600">
+                            See the meetings you've been in.
+                        </span>
+                    </button>
+                </div>
+            </main>
         </div>
     );
 };

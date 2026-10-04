@@ -5,6 +5,23 @@ import {
 } from "react";
 
 import {
+    Mic,
+    MicOff,
+    Video,
+    VideoOff,
+    MonitorUp,
+    MonitorOff,
+    MessageSquare,
+    Users,
+    PhoneOff,
+    Copy,
+    Check,
+    Send,
+    X,
+    Crown,
+} from "lucide-react";
+
+import {
     useNavigate,
     useParams
 } from "react-router-dom";
@@ -32,6 +49,48 @@ const defaultMediaState = {
     cameraOff: false,
     screenSharing: false
 };
+
+
+const gridClass = (count) =>
+    count <= 1
+        ? "max-w-3xl grid-cols-1"
+        : count <= 4
+        ? "max-w-5xl sm:grid-cols-2"
+        : "max-w-6xl sm:grid-cols-2 lg:grid-cols-3";
+
+const Centered = ({ title, busy, children }) => (
+    <div className="flex min-h-dvh items-center justify-center bg-stone-50 px-4">
+        <div className="w-full max-w-sm rounded-2xl border border-stone-200 bg-white p-8 text-center shadow-sm">
+            {busy && (
+                <div className="mx-auto mb-5 h-8 w-8 animate-spin rounded-full border-2 border-stone-200 border-t-blue-600" />
+            )}
+            <h1 className="text-xl font-semibold text-stone-900">{title}</h1>
+            {children}
+        </div>
+    </div>
+);
+
+const ControlButton = ({ onClick, label, active, danger, children }) => (
+    <button
+        onClick={onClick}
+        aria-label={label}
+        title={label}
+        className={`flex h-12 w-12 items-center justify-center rounded-full border transition ${
+            danger
+                ? "border-red-200 bg-red-50 text-red-600 hover:bg-red-100"
+                : active
+                ? "border-blue-200 bg-blue-50 text-blue-700"
+                : "border-stone-300 bg-white text-stone-700 hover:bg-stone-100"
+        }`}
+    >
+        {children}
+    </button>
+);
+
+const primaryBtn =
+    "mt-6 w-full rounded-lg bg-blue-600 py-2.5 text-sm font-medium text-white transition hover:bg-blue-700";
+const secondaryBtn =
+    "mt-6 w-full rounded-lg border border-stone-300 bg-white py-2.5 text-sm font-medium text-stone-700 transition hover:bg-stone-100";
 
 
 const Meeting = () => {
@@ -122,6 +181,9 @@ const [joinRejectionReason, setJoinRejectionReason] =
 
 const [pendingJoinRequests, setPendingJoinRequests] =
     useState([]);
+
+        const [panel, setPanel] = useState(null); // "chat" | "people" | null
+    const [copied, setCopied] = useState(false);
     // =====================================================
     // REFS
     // =====================================================
@@ -2376,7 +2438,60 @@ const [pendingJoinRequests, setPendingJoinRequests] =
 
     };
 
+        const renegotiate = async (peerId, peerConnection) => {
+        const socket = socketRef.current;
 
+        if (!socket?.connected || peerConnection.signalingState !== "stable") {
+            return;
+        }
+
+        try {
+            const offer = await peerConnection.createOffer();
+            await peerConnection.setLocalDescription(offer);
+
+            socket.emit("signal", {
+                to: peerId,
+                data: {
+                    type: "offer",
+                    sdp: peerConnection.localDescription,
+                },
+            });
+        } catch (error) {
+            console.error("Renegotiation failed:", error);
+        }
+    };
+
+    // Sends `track` to one peer. Works whether or not we joined with a camera.
+    const setVideoTrack = async (
+        peerId,
+        peerConnection,
+        track,
+        fallbackStream
+    ) => {
+        const shared = localStreamRef.current || fallbackStream;
+
+        const transceiver = peerConnection
+            .getTransceivers()
+            .find((t) => t.receiver.track.kind === "video");
+
+        if (transceiver) {
+            await transceiver.sender.replaceTrack(track);
+
+            // We answered without a camera, so this was negotiated receive-only.
+            if (track && transceiver.direction !== "sendrecv") {
+                transceiver.sender.setStreams(shared);
+                transceiver.direction = "sendrecv";
+                await renegotiate(peerId, peerConnection);
+            }
+
+            return;
+        }
+
+        if (track) {
+            peerConnection.addTrack(track, shared);
+            await renegotiate(peerId, peerConnection);
+        }
+    };
     // =====================================================
     // START SCREEN SHARING
     // =====================================================
@@ -2467,44 +2582,22 @@ const [pendingJoinRequests, setPendingJoinRequests] =
                 // REPLACE CAMERA TRACK
                 // =========================================
 
-                const replacements = [];
+                               const jobs = [];
 
-
-                peerConnectionsRef
-                    .current
-                    .forEach(
-                        (peerConnection) => {
-
-                            const sender =
-                                peerConnection
-                                    .getSenders()
-                                    .find(
-                                        (item) =>
-                                            item
-                                                .track
-                                                ?.kind ===
-                                            "video"
-                                    );
-
-
-                            if (sender) {
-
-                                replacements.push(
-                                    sender
-                                        .replaceTrack(
-                                            screenTrack
-                                        )
-                                );
-
-                            }
-
-                        }
-                    );
-
-
-                await Promise.allSettled(
-                    replacements
+                peerConnectionsRef.current.forEach(
+                    (peerConnection, peerId) => {
+                        jobs.push(
+                            setVideoTrack(
+                                peerId,
+                                peerConnection,
+                                screenTrack,
+                                displayStream
+                            )
+                        );
+                    }
                 );
+
+                await Promise.allSettled(jobs);
 
 
                 // Browser "Stop sharing".
@@ -2556,48 +2649,20 @@ const [pendingJoinRequests, setPendingJoinRequests] =
             // RESTORE CAMERA TRACK
             // =========================================
 
-            if (cameraTrack) {
+                        const jobs = [];
 
-                const replacements = [];
-
-
-                peerConnectionsRef
-                    .current
-                    .forEach(
-                        (peerConnection) => {
-
-                            const sender =
-                                peerConnection
-                                    .getSenders()
-                                    .find(
-                                        (item) =>
-                                            item
-                                                .track
-                                                ?.kind ===
-                                            "video"
-                                    );
-
-
-                            if (sender) {
-
-                                replacements.push(
-                                    sender
-                                        .replaceTrack(
-                                            cameraTrack
-                                        )
-                                );
-
-                            }
-
-                        }
-                    );
-
-
-                await Promise.allSettled(
-                    replacements
+            peerConnectionsRef.current.forEach((peerConnection, peerId) => {
+                jobs.push(
+                    setVideoTrack(
+                        peerId,
+                        peerConnection,
+                        cameraTrack || null,
+                        null
+                    )
                 );
+            });
 
-            }
+            await Promise.allSettled(jobs);
 
 
             // =========================================
@@ -2712,698 +2777,415 @@ const [pendingJoinRequests, setPendingJoinRequests] =
     // ERROR SCREEN
     // =====================================================
 
+    // ERROR / WAITING / REJECTED / CONNECTING SCREENS
+
     if (error) {
-
         return (
-            <div>
-
-                <h2>
-                    Unable to join meeting
-                </h2>
-
-                <p>
-                    {error}
-                </p>
-
-                <button
-                    onClick={() =>
-                        navigate("/")
-                    }
-                >
-                    Go Home
+            <Centered title="Couldn't join this meeting">
+                <p className="mt-2 text-sm text-stone-600">{error}</p>
+                <button onClick={() => navigate("/")} className={primaryBtn}>
+                    Go home
                 </button>
-
-            </div>
+            </Centered>
         );
-
     }
 
-
-    // =====================================================
-    // WAITING FOR HOST
-    // =====================================================
-
-    if (
-        joinStatus ===
-        "waiting"
-    ) {
-
+    if (joinStatus === "waiting") {
         return (
-            <div>
-
-                <h1>
-                    Waiting for Host
-                </h1>
-
-                <p>
-                    Your request has been sent to the host.
+            <Centered title="Waiting for the host" busy>
+                <p className="mt-2 text-sm text-stone-600">
+                    The host knows you're here. You'll be in as soon as they
+                    let you through.
                 </p>
-
-                <p>
-                    Please wait for the host to admit you.
-                </p>
-
-                <button
-                    onClick={
-                        leaveMeeting
-                    }
-                >
+                <button onClick={leaveMeeting} className={secondaryBtn}>
                     Cancel
                 </button>
-
-            </div>
+            </Centered>
         );
-
     }
 
-
-    // =====================================================
-    // REQUEST REJECTED
-    // =====================================================
-
-    if (
-        joinStatus ===
-        "rejected"
-    ) {
-
+    if (joinStatus === "rejected") {
         return (
-            <div>
-
-                <h1>
-                    Unable to Join Meeting
-                </h1>
-
-                <p>
-                    {joinRejectionReason ||
-                        "The host did not admit you."}
+            <Centered title="You weren't let in">
+                <p className="mt-2 text-sm text-stone-600">
+                    {joinRejectionReason || "The host did not admit you."}
                 </p>
-
-                <button
-                    onClick={() =>
-                        navigate("/")
-                    }
-                >
-                    Go Home
+                <button onClick={() => navigate("/")} className={primaryBtn}>
+                    Go home
                 </button>
-
-            </div>
+            </Centered>
         );
-
     }
 
-
-    // =====================================================
-    // CONNECTING / ACCESS CHECK
-    // =====================================================
-
-    if (
-        joinStatus !==
-        "joined"
-    ) {
-
+    if (joinStatus !== "joined") {
         return (
-            <div>
-
-                <h1>
-                    Joining Meeting
-                </h1>
-
-                <p>
-                    Connecting and checking meeting access...
+            <Centered title="Getting you in" busy>
+                <p className="mt-2 text-sm text-stone-600">
+                    Checking the meeting and setting up your connection.
                 </p>
-
-            </div>
+            </Centered>
         );
-
     }
 
+    // MAIN CALL UI
 
-    // =====================================================
-    // UI
-    // =====================================================
+    const copyMeetingId = async () => {
+        try {
+            await navigator.clipboard.writeText(meetingId);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1500);
+        } catch {
+            // clipboard can be blocked; nothing to do
+        }
+    };
+
+        const total = participants.length + 1;
 
     return (
-        <div>
+        <div className="flex h-dvh flex-col bg-stone-100 text-stone-900">
+            {/* top bar */}
+            <header className="flex items-center justify-between border-b border-stone-200 bg-white px-4 py-3">
+                <div className="flex items-center gap-3">
+                    <span className="font-semibold tracking-tight">Meetus</span>
+                    <button
+                        onClick={copyMeetingId}
+                        title="Copy meeting ID"
+                        className="flex items-center gap-2 rounded-lg bg-stone-100 px-3 py-1.5 font-mono text-sm tracking-wider text-stone-700 transition hover:bg-stone-200"
+                    >
+                        {meetingId}
+                        {copied ? (
+                            <Check size={14} className="text-emerald-600" />
+                        ) : (
+                            <Copy size={14} />
+                        )}
+                    </button>
+                </div>
 
-            <h1>
-                Meeting
-            </h1>
+                <div className="flex items-center gap-2 text-sm text-stone-600">
+                    <span
+                        className={`h-2 w-2 rounded-full ${
+                            connected ? "bg-emerald-500" : "bg-amber-500"
+                        }`}
+                    />
+                    {connected ? "Connected" : "Reconnecting..."}
+                </div>
+            </header>
 
-
-            <h2>
-                {meetingId}
-            </h2>
-
-
-            <p>
-                Status:{" "}
-
-                {connected
-                    ? "Connected"
-                    : "Connecting..."
-                }
-            </p>
-
-
-            <hr />
-
-
-            {/* =================================================
-                LOCAL VIDEO
-            ================================================= */}
-
-            <h2>
-                My Camera
-            </h2>
-
-
-            {mediaLoading && (
-                <p>
-                    Starting camera and microphone...
-                </p>
-            )}
-
-
+            {/* notices */}
             {mediaError && (
-                <p>
-                    Camera/Microphone unavailable:
-                    {" "}
-                    {mediaError}
+                <p className="bg-amber-50 px-4 py-2 text-sm text-amber-800">
+                    Camera or microphone isn't available ({mediaError}). You can
+                    still watch and chat.
                 </p>
             )}
 
-
-            {(screenStream || stream) && (
-                <LocalVideo
-                    stream={
-                        screenStream ||
-                        stream
-                    }
-                />
-            )}
-
-
-            <div>
-
-                <button
-                    onClick={
-                        toggleMicrophone
-                    }
-                >
-                    {isMuted
-                        ? "Unmute"
-                        : "Mute"
-                    }
-                </button>
-
-
-                {" "}
-
-
-                <button
-                    onClick={
-                        toggleCamera
-                    }
-                >
-                    {isCameraOff
-                        ? "Turn Camera On"
-                        : "Turn Camera Off"
-                    }
-                </button>
-
-
-                {" "}
-
-
-                {!isScreenSharing ? (
-
-                    <button
-                        onClick={
-                            startScreenSharing
-                        }
-                    >
-                        Share Screen
-                    </button>
-
-                ) : (
-
-                    <button
-                        onClick={
-                            stopScreenSharing
-                        }
-                    >
-                        Stop Sharing
-                    </button>
-
-                )}
-
-            </div>
-
-
-            <hr />
-
-
-            {/* =================================================
-                REMOTE VIDEOS
-            ================================================= */}
-
-            <h2>
-                Remote Participants
-            </h2>
-
-
-            {remoteStreams.length === 0 && (
-                <p>
-                    No remote video yet.
-                </p>
-            )}
-
-
-            <div>
-
-                {remoteStreams.map(
-                    ({
-                        peerId,
-                        stream,
-                        name,
-                        role
-                    }) => {
-
-                        const peerState =
-                            peerStates[
-                                peerId
-                            ];
-
-
-                        return (
-                            <div
-                                key={peerId}
-                            >
-
-                                <p>
-
-                                    <strong>
-                                        {name}
-                                    </strong>
-
-                                    {" "}
-
-                                    (
-                                    {role}
-                                    )
-
-                                    {" "}
-
-
-                                    {peerState
-                                        ?.connectionState ===
-                                        "connected" && (
-                                        <span>
-                                            🟢 Connected
-                                        </span>
-                                    )}
-
-
-                                    {peerState
-                                        ?.connectionState ===
-                                        "connecting" && (
-                                        <span>
-                                            🟡 Connecting
-                                        </span>
-                                    )}
-
-
-                                    {peerState
-                                        ?.connectionState ===
-                                        "disconnected" && (
-                                        <span>
-                                            🟠 Disconnected
-                                        </span>
-                                    )}
-
-
-                                    {peerState
-                                        ?.connectionState ===
-                                        "failed" && (
-                                        <span>
-                                            🔴 Failed
-                                        </span>
-                                    )}
-
-                                </p>
-
-
-                                <RemoteVideo
-                                    stream={
-                                        stream
-                                    }
-                                />
-
-                            </div>
-                        );
-
-                    }
-                )}
-
-            </div>
-
-
-            <hr />
-
-
-            {/* =================================================
-                HOST JOIN REQUESTS
-            ================================================= */}
-
-            {isHost &&
-                pendingJoinRequests.length > 0 && (
-
-                <div>
-
-                    <h2>
-                        Join Requests
-                    </h2>
-
-                    {pendingJoinRequests.map(
-                        (request) => (
-
-                            <div
-                                key={
-                                    request.requestId
-                                }
-                            >
-
-                                <strong>
-                                    {
-                                        request.user.name
-                                    }
-                                </strong>
-
-                                {" "}
-
-                                (
-                                {
-                                    request.user.role
-                                }
-                                )
-
-                                {" "}
-
+            {isHost && pendingJoinRequests.length > 0 && (
+                <div className="space-y-2 border-b border-stone-200 bg-blue-50 px-4 py-3">
+                    {pendingJoinRequests.map((request) => (
+                        <div
+                            key={request.requestId}
+                            className="flex flex-wrap items-center justify-between gap-3"
+                        >
+                            <p className="text-sm text-stone-800">
+                                <span className="font-semibold">
+                                    {request.user.name}
+                                </span>
+                                {request.user.role === "guest" && " (guest)"} wants
+                                to join
+                            </p>
+                            <div className="flex gap-2">
                                 <button
-                                    onClick={() =>
-                                        admitUser(
-                                            request.requestId
-                                        )
-                                    }
+                                    onClick={() => rejectUser(request.requestId)}
+                                    className="rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-sm font-medium text-stone-700 hover:bg-stone-100"
+                                >
+                                    Decline
+                                </button>
+                                <button
+                                    onClick={() => admitUser(request.requestId)}
+                                    className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
                                 >
                                     Admit
                                 </button>
-
-                                {" "}
-
-                                <button
-                                    onClick={() =>
-                                        rejectUser(
-                                            request.requestId
-                                        )
-                                    }
-                                >
-                                    Reject
-                                </button>
-
                             </div>
-
-                        )
-                    )}
-
+                        </div>
+                    ))}
                 </div>
-
             )}
 
+            {/* video area + side panel */}
+            <div className="flex min-h-0 flex-1">
+                <main className="flex-1 overflow-y-auto p-4">
+                    <div
+                        className={`mx-auto grid w-full gap-4 ${gridClass(total)}`}
+                    >
+                        <LocalVideo
+                            stream={screenStream || stream}
+                            micOff={isMuted}
+                            cameraOff={isCameraOff}
+                            sharing={isScreenSharing}
+                        />
 
-            <hr />
+                                               {participants.map((p) => {
+                            const remote = remoteStreams.find(
+                                (r) => r.peerId === p.socketId
+                            );
+                            const state = mediaStates[p.socketId];
 
+                            return (
+                                <RemoteVideo
+                                    key={p.socketId}
+                                    stream={remote?.stream || null}
+                                    name={p.user.name}
+                                    micOff={state?.muted}
+                                    cameraOff={state?.cameraOff}
+                                    sharing={state?.screenSharing}
+                                    status={peerStates[p.socketId]?.connectionState}
+                                />
+                            );
+                        })}
+                    </div>
 
-            {/* =================================================
-                CHAT
-            ================================================= */}
+                    {remoteStreams.length === 0 && (
+                        <p className="mt-6 text-center text-sm text-stone-500">
+                            You're the only one here. Share the meeting ID so
+                            others can join.
+                        </p>
+                    )}
+                </main>
 
-            <h2>
-                Chat
-            </h2>
+                {panel && (
+                    <aside className="fixed inset-y-0 right-0 z-20 flex w-full max-w-sm flex-col border-l border-stone-200 bg-white lg:static lg:w-80 lg:max-w-none">
+                        <div className="flex items-center justify-between border-b border-stone-200 px-4 py-3">
+                            <h2 className="font-semibold">
+                                {panel === "chat"
+                                    ? "Chat"
+                                    : `People (${participants.length + 1})`}
+                            </h2>
+                            <button
+                                onClick={() => setPanel(null)}
+                                aria-label="Close panel"
+                                className="rounded-md p-1 text-stone-500 hover:bg-stone-100"
+                            >
+                                <X size={18} />
+                            </button>
+                        </div>
 
+                        {panel === "chat" ? (
+                            <>
+                                <div className="flex-1 space-y-3 overflow-y-auto p-4">
+                                    {messages.length === 0 && (
+                                        <p className="text-sm text-stone-500">
+                                            No messages yet. Say hi.
+                                        </p>
+                                    )}
 
-            <div
-                style={{
-                    border:
-                        "1px solid #ccc",
+                                    {messages.map((message) => (
+                                        <div key={message.id}>
+                                            <p className="text-xs font-semibold text-stone-700">
+                                                {message.senderName}
+                                                {message.senderRole ===
+                                                    "guest" && (
+                                                    <span className="ml-1.5 rounded bg-stone-100 px-1.5 py-0.5 font-normal text-stone-500">
+                                                        Guest
+                                                    </span>
+                                                )}
+                                            </p>
+                                            <p className="mt-0.5 break-words text-sm text-stone-800">
+                                                {message.message}
+                                            </p>
+                                        </div>
+                                    ))}
 
-                    width:
-                        "400px",
+                                    <div ref={chatEndRef} />
+                                </div>
 
-                    height:
-                        "300px",
+                                <div className="flex gap-2 border-t border-stone-200 p-3">
+                                    <input
+                                        type="text"
+                                        value={chatMessage}
+                                        onChange={(event) =>
+                                            setChatMessage(event.target.value)
+                                        }
+                                        onKeyDown={handleChatKeyDown}
+                                        placeholder="Type a message"
+                                        maxLength={1000}
+                                        className="min-w-0 flex-1 rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-600/20"
+                                    />
+                                    <button
+                                        onClick={sendChatMessage}
+                                        disabled={!chatMessage.trim()}
+                                        aria-label="Send message"
+                                        className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-600 text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                                    >
+                                        <Send size={16} />
+                                    </button>
+                                </div>
+                            </>
+                        ) : (
+                            <ul className="flex-1 divide-y divide-stone-100 overflow-y-auto">
+                                <li className="flex items-center gap-3 px-4 py-3">
+                                    <span className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-100 text-sm font-semibold text-blue-700">
+                                        Y
+                                    </span>
+                                    <span className="flex-1 text-sm font-medium">
+                                        You
+                                        {isHost && (
+                                            <Crown
+                                                size={13}
+                                                className="ml-1.5 inline text-amber-500"
+                                            />
+                                        )}
+                                    </span>
+                                    {isMuted && (
+                                        <MicOff size={15} className="text-red-600" />
+                                    )}
+                                    {isCameraOff && (
+                                        <VideoOff size={15} className="text-red-600" />
+                                    )}
+                                </li>
 
-                    overflowY:
-                        "auto",
+                                {participants.map((participant) => {
+                                    const state =
+                                        mediaStates[participant.socketId];
 
-                    padding:
-                        "10px"
-                }}
-            >
-
-                {messages.length === 0 && (
-                    <p>
-                        No messages yet.
-                    </p>
+                                    return (
+                                        <li
+                                            key={participant.socketId}
+                                            className="flex items-center gap-3 px-4 py-3"
+                                        >
+                                            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-stone-100 text-sm font-semibold text-stone-700">
+                                                {participant.user.name
+                                                    .trim()
+                                                    .charAt(0)
+                                                    .toUpperCase()}
+                                            </span>
+                                            <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                                                {participant.user.name}
+                                                {participant.user.role ===
+                                                    "guest" && (
+                                                    <span className="ml-1.5 text-xs font-normal text-stone-500">
+                                                        Guest
+                                                    </span>
+                                                )}
+                                                {participant.isHost && (
+                                                    <Crown
+                                                        size={13}
+                                                        className="ml-1.5 inline text-amber-500"
+                                                    />
+                                                )}
+                                            </span>
+                                            {state?.screenSharing && (
+                                                <MonitorUp
+                                                    size={15}
+                                                    className="text-blue-600"
+                                                />
+                                            )}
+                                            {state?.muted && (
+                                                <MicOff
+                                                    size={15}
+                                                    className="text-red-600"
+                                                />
+                                            )}
+                                            {state?.cameraOff && (
+                                                <VideoOff
+                                                    size={15}
+                                                    className="text-red-600"
+                                                />
+                                            )}
+                                        </li>
+                                    );
+                                })}
+                            </ul>
+                        )}
+                    </aside>
                 )}
+            </div>
 
+            {/* controls */}
+            <footer className="border-t border-stone-200 bg-white px-4 py-3">
+                <div className="mx-auto flex max-w-3xl flex-wrap items-center justify-center gap-3">
+                    <ControlButton
+                        onClick={toggleMicrophone}
+                        label={isMuted ? "Unmute" : "Mute"}
+                        danger={isMuted}
+                    >
+                        {isMuted ? <MicOff size={20} /> : <Mic size={20} />}
+                    </ControlButton>
 
-                {messages.map(
-                    (message) => (
+                    <ControlButton
+                        onClick={toggleCamera}
+                        label={isCameraOff ? "Turn camera on" : "Turn camera off"}
+                        danger={isCameraOff}
+                    >
+                        {isCameraOff ? <VideoOff size={20} /> : <Video size={20} />}
+                    </ControlButton>
 
-                        <div
-                            key={
-                                message.id
-                            }
-                            style={{
-                                marginBottom:
-                                    "10px"
+                    <ControlButton
+                        onClick={
+                            isScreenSharing ? stopScreenSharing : startScreenSharing
+                        }
+                        label={isScreenSharing ? "Stop sharing" : "Share screen"}
+                        active={isScreenSharing}
+                    >
+                        {isScreenSharing ? (
+                            <MonitorOff size={20} />
+                        ) : (
+                            <MonitorUp size={20} />
+                        )}
+                    </ControlButton>
+
+                    <span className="mx-1 hidden h-8 w-px bg-stone-200 sm:block" />
+
+                    <ControlButton
+                        onClick={() =>
+                            setPanel(panel === "chat" ? null : "chat")
+                        }
+                        label="Chat"
+                        active={panel === "chat"}
+                    >
+                        <MessageSquare size={20} />
+                    </ControlButton>
+
+                    <ControlButton
+                        onClick={() =>
+                            setPanel(panel === "people" ? null : "people")
+                        }
+                        label="People"
+                        active={panel === "people"}
+                    >
+                        <Users size={20} />
+                    </ControlButton>
+
+                    <span className="mx-1 hidden h-8 w-px bg-stone-200 sm:block" />
+
+                    <button
+                        onClick={leaveMeeting}
+                        className="flex h-12 items-center gap-2 rounded-full bg-red-600 px-5 text-sm font-medium text-white transition hover:bg-red-700"
+                    >
+                        <PhoneOff size={18} />
+                        Leave
+                    </button>
+
+                    {isHost && (
+                        <button
+                            onClick={() => {
+                                if (
+                                    window.confirm(
+                                        "End the meeting for everyone?"
+                                    )
+                                ) {
+                                    endMeeting();
+                                }
                             }}
+                            className="h-12 rounded-full border border-red-200 px-4 text-sm font-medium text-red-700 transition hover:bg-red-50"
                         >
-
-                            <strong>
-                                {
-                                    message
-                                        .senderName
-                                }
-                            </strong>
-
-
-                            {" "}
-
-
-                            {message
-                                .senderRole ===
-                                "guest" && (
-                                <small>
-                                    (Guest)
-                                </small>
-                            )}
-
-
-                            <div>
-                                {
-                                    message
-                                        .message
-                                }
-                            </div>
-
-                        </div>
-
-                    )
-                )}
-
-
-                <div
-                    ref={
-                        chatEndRef
-                    }
-                />
-
-            </div>
-
-
-            <div
-                style={{
-                    marginTop:
-                        "10px"
-                }}
-            >
-
-                <input
-                    type="text"
-                    value={
-                        chatMessage
-                    }
-                    onChange={
-                        (event) =>
-                            setChatMessage(
-                                event.target
-                                    .value
-                            )
-                    }
-                    onKeyDown={
-                        handleChatKeyDown
-                    }
-                    placeholder={
-                        "Type a message..."
-                    }
-                    maxLength={1000}
-                />
-
-
-                {" "}
-
-
-                <button
-                    onClick={
-                        sendChatMessage
-                    }
-                >
-                    Send
-                </button>
-
-            </div>
-
-
-            <hr />
-
-
-            {/* =================================================
-                PARTICIPANTS
-            ================================================= */}
-
-            <h2>
-                Participants
-            </h2>
-
-
-            {participants.length === 0 && (
-                <p>
-                    No other participants yet.
-                </p>
-            )}
-
-
-            {participants.map(
-                (participant) => {
-
-                    const state =
-                        mediaStates[
-                            participant
-                                .socketId
-                        ];
-
-
-                    return (
-                        <div
-                            key={
-                                participant
-                                    .socketId
-                            }
-                        >
-
-                            <strong>
-                                {
-                                    participant
-                                        .user
-                                        .name
-                                }
-                            </strong>
-
-                            {" "}
-
-                            (
-                            {
-                                participant
-                                    .user
-                                    .role
-                            }
-                            )
-
-
-                            {participant.isHost && (
-                                <span>
-                                    {" "}
-                                    👑 Host
-                                </span>
-                            )}
-
-
-                            {state?.muted && (
-                                <span>
-                                    {" "}
-                                    🔇 Muted
-                                </span>
-                            )}
-
-
-                            {state?.cameraOff && (
-                                <span>
-                                    {" "}
-                                    📷 Camera Off
-                                </span>
-                            )}
-
-
-                            {state?.screenSharing && (
-                                <span>
-                                    {" "}
-                                    🖥 Sharing Screen
-                                </span>
-                            )}
-
-                        </div>
-                    );
-
-                }
-            )}
-
-
-            <br />
-
-
-            {/* =================================================
-                MEETING CONTROLS
-            ================================================= */}
-
-            <button
-                onClick={
-                    leaveMeeting
-                }
-            >
-                Leave Meeting
-            </button>
-
-
-            {" "}
-
-
-            {isHost && (
-                <button
-                    onClick={
-                        endMeeting
-                    }
-                >
-                    End Meeting
-                </button>
-            )}
-
+                            End for all
+                        </button>
+                    )}
+                </div>
+            </footer>
         </div>
     );
-
 };
-
 
 export default Meeting;
